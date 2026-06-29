@@ -1,0 +1,221 @@
+{% extends "student/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>Stage 2 匿名审稿</h1>
+    <p>导入助教发放的审稿任务包，填写结构化 review。</p>
+  </div>
+</section>
+
+<section class="panel stage-actions-panel">
+  <div class="heading-title">
+    <h2>清空当前 Stage 与导入包</h2>
+    <span class="help-icon" data-tooltip="清空当前 Stage 会删除已导入的审稿任务、已填写的审稿意见和已导出的 Stage 2 审稿包。导入包会替换当前审稿任务并同步学生信息。">?</span>
+  </div>
+  <div class="actions">
+  <form method="post" action="/stage2/reset" onsubmit="return confirm('确定要重置 Stage 2 吗？这会清空已导入的审稿任务、已填写的 review 和已导出的审稿包。');">
+    <button type="submit" class="danger-quiet">清空当前 Stage</button>
+  </form>
+    <form method="post" action="/stage2/import" enctype="multipart/form-data" class="inline-form">
+      <input type="file" name="file" accept=".tar.gz,application/gzip" required>
+      <button type="submit">导入审稿任务包</button>
+    </form>
+  </div>
+  <p class="muted">文件名：{学号}-teacher-stage2-review-assignment.tar.gz。导入后会同步学生信息，并替换当前审稿任务。</p>
+</section>
+
+{% include "student/student_info.html" %}
+
+{% if state.stage2_assignment_error %}
+<div class="notice error">{{ state.stage2_assignment_error }}</div>
+{% endif %}
+
+{% if state.assignment %}
+<form method="post" action="/stage2/package" id="stage2-package-form">
+  {% for item in state.assignment.assigned_problems %}
+  <section class="panel" data-stage2-review-card data-anonymous-id="{{ item.anonymous_id }}">
+    <h2>{{ item.anonymous_id }} · {{ item.title }}</h2>
+    <div class="heading-title">
+      <h3>题目完整详情</h3>
+      <span class="help-icon" data-tooltip="这里展示作者提交的匿名题目快照，包括题面、函数签名、参考答案、样例数据、测试数据和说明，用于审稿判断。">?</span>
+    </div>
+    <div class="review-problem-detail">
+      <h4>题面</h4>
+      <pre>{{ item.statement }}</pre>
+      <h4>函数签名</h4>
+      <pre>{{ item.signature }}</pre>
+      <h4>参考答案</h4>
+      <pre>{{ item.reference_solution or '未提供' }}</pre>
+      <h4>样例数据</h4>
+      {% if item.public_tests %}
+      <table>
+        <thead><tr><th>#</th><th>输入</th><th>输出</th></tr></thead>
+        <tbody>
+        {% for test in item.public_tests %}
+          {% set row = test | test_io %}
+          <tr><td>p-{{ loop.index0 }}</td><td><code>{{ row.input }}</code></td><td><code>{{ row.output }}</code></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <p class="muted">未提供样例数据。</p>
+      {% endif %}
+      <h4>测试数据</h4>
+      {% if item.author_tests %}
+      <table>
+        <thead><tr><th>#</th><th>输入</th><th>输出</th></tr></thead>
+        <tbody>
+        {% for test in item.author_tests %}
+          {% set row = test | test_io %}
+          <tr><td>a-{{ loop.index0 }}</td><td><code>{{ row.input }}</code></td><td><code>{{ row.output }}</code></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <p class="muted">未提供测试数据。</p>
+      {% endif %}
+      {% if item.notes %}
+      <h4>说明</h4>
+      <pre>{{ item.notes }}</pre>
+      {% endif %}
+    </div>
+
+    <div class="heading-title">
+      <h3>提交的自测运行结果</h3>
+      <span class="help-icon" data-tooltip="这里展示作者随题目提交的模型自测记录，包括模型、结果、返回代码和逐用例执行结果，帮助判断题目是否能有效区分模型。">?</span>
+    </div>
+    {% if item.run_records %}
+      {% for run in item.run_records %}
+      <div class="panel-subsection review-run-card">
+        <h4>运行结果 {{ loop.index }}</h4>
+        <table>
+          <tbody>
+            <tr><th>Run ID</th><td><code>{{ run.run_id }}</code></td></tr>
+            <tr><th>模型</th><td>{{ run.model or '未记录' }}</td></tr>
+            <tr><th>结果</th><td><span class="status-pill {{ 'ok' if run.verdict == 'passed' else 'warn' }}">{{ run.verdict or '未记录' }}</span></td></tr>
+            <tr><th>时间</th><td>{{ run.created_at or '未记录' }}</td></tr>
+          </tbody>
+        </table>
+        <h4>返回代码</h4>
+        <pre>{{ run.extracted_code or run.raw_response or '未记录' }}</pre>
+        {% if run.test_results %}
+        <h4>逐用例结果</h4>
+        <table>
+          <thead><tr><th>用例 ID</th><th>集合</th><th>结果</th><th>期望</th><th>实际/错误</th></tr></thead>
+          <tbody>
+          {% for case in run.test_results %}
+            <tr>
+              <td>{{ case.case_id }}</td>
+              <td>{{ '样例数据' if case.test_set == 'public' else ('测试数据' if case.test_set == 'author' else case.test_set) }}</td>
+              <td><span class="status-pill {{ 'ok' if case.verdict == 'passed' else 'warn' }}">{{ case.verdict }}</span></td>
+              <td><code>{{ case.expected | tojson }}</code></td>
+              <td>
+                {% if case.error %}
+                  {{ case.error }}
+                {% else %}
+                  <code>{{ case.actual | tojson }}</code>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">作者未提交可展示的自测运行记录。</p>
+    {% endif %}
+
+    {% set saved_review = state.reviews.get(item.anonymous_id, {}) %}
+    {% set saved_conclusion = saved_review.get('conclusion', '') %}
+    {% set saved_quality_score = saved_review.get('quality_score', '') %}
+    <label>结论
+      <span class="help-icon" data-tooltip="必须选择一个审稿结论。accept 表示可以通过，minor 表示小修，major 表示需要较大修改，reject 表示题目不应通过。">?</span>
+      <select name="conclusion_{{ item.anonymous_id }}" data-stage2-review-autosave>
+        <option value="" {% if not saved_conclusion %}selected{% endif %}>未选择</option>
+        {% for conclusion in ['accept', 'minor', 'major', 'reject'] %}
+        <option value="{{ conclusion }}" {% if saved_conclusion == conclusion %}selected{% endif %}>{{ conclusion }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>题目质量评分
+      <span class="help-icon" data-tooltip="请评价这道题作为课程题目的整体质量，1 分表示质量很低，5 分表示质量很高。必须选择后才能导出审稿包。">?</span>
+      <select name="quality_score_{{ item.anonymous_id }}" data-stage2-review-autosave>
+        <option value="" {% if not saved_quality_score %}selected{% endif %}>未评分</option>
+        {% for score in ['5', '4', '3', '2', '1'] %}
+        <option value="{{ score }}" {% if saved_quality_score == score %}selected{% endif %}>{{ score }} 分</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>建议
+      <span class="help-icon" data-tooltip="写出你的判断依据和具体修改建议，最多 {{ limits.review_explanation }} 字符。请结合题面、函数签名、样例数据、测试数据和作者自测结果填写。">?</span>
+      <textarea name="explanation_{{ item.anonymous_id }}" rows="5" maxlength="{{ limits.review_explanation }}" data-stage2-review-autosave>{{ saved_review.get('explanation', '') }}</textarea>
+    </label>
+    <p class="form-inline-message muted" data-stage2-review-status aria-live="polite">结论或建议变更后会自动保存草稿。</p>
+  </section>
+  {% endfor %}
+  <section class="panel package" id="stage2-package-panel">
+    <h2>导出 Stage 2 审稿提交包</h2>
+    <p>文件名：{学号}-student-stage2-reviews.tar.gz</p>
+    {% if package_error %}
+    <div class="form-inline-message error-text" id="stage2-package-error" aria-live="polite">{{ package_error }}</div>
+    {% endif %}
+    <button type="submit">导出 Stage 2 审稿提交包</button>
+  </section>
+</form>
+<script>
+  (() => {
+    const setStatus = (card, text, className = "form-inline-message muted") => {
+      const status = card?.querySelector("[data-stage2-review-status]");
+      if (status) {
+        status.textContent = text;
+        status.className = className;
+      }
+    };
+
+    const saveDraft = async (card) => {
+      if (!card) {
+        return;
+      }
+      const anonymousId = card.dataset.anonymousId;
+      const conclusion = card.querySelector(`[name="conclusion_${CSS.escape(anonymousId)}"]`);
+      const qualityScore = card.querySelector(`[name="quality_score_${CSS.escape(anonymousId)}"]`);
+      const explanation = card.querySelector(`[name="explanation_${CSS.escape(anonymousId)}"]`);
+      const body = new FormData();
+      body.set("_response_format", "json");
+      body.set("anonymous_id", anonymousId);
+      body.set(`conclusion_${anonymousId}`, conclusion?.value || "");
+      body.set(`quality_score_${anonymousId}`, qualityScore?.value || "");
+      body.set(`explanation_${anonymousId}`, explanation?.value || "");
+      setStatus(card, "正在保存草稿...");
+      try {
+        const response = await fetch("/stage2/reviews/draft", {
+          method: "POST",
+          body,
+          headers: { "X-Requested-With": "fetch", "Accept": "application/json" },
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          setStatus(card, payload.message || "草稿保存失败，请稍后重试。", "form-inline-message error-text");
+          return;
+        }
+        setStatus(card, "草稿已保存。", "form-inline-message ok-text");
+      } catch (error) {
+        setStatus(card, "草稿保存失败，请稍后重试。", "form-inline-message error-text");
+      }
+    };
+
+    const debounceTimers = new WeakMap();
+    document.querySelectorAll("[data-stage2-review-autosave]").forEach((input) => {
+      const card = input.closest("[data-stage2-review-card]");
+      input.addEventListener("change", () => saveDraft(card));
+      input.addEventListener("input", () => {
+        window.clearTimeout(debounceTimers.get(input));
+        debounceTimers.set(input, window.setTimeout(() => saveDraft(card), 450));
+      });
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}

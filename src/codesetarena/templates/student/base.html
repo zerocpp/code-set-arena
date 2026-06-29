@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeSetArena 学生端 {{ display_version }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong>CodeSetArena</strong>
+      <span>学生端</span>
+      <span class="version-badge">{{ display_version }}</span>
+    </div>
+    <nav>
+      <a class="{{ 'active' if active == 'settings' else '' }}" href="/settings">设置</a>
+      <a class="{{ 'active' if active == 'stage1' else '' }}" href="/stage1">Stage 1 原始题目</a>
+      <a class="{{ 'active' if active == 'stage2' else '' }}" href="/stage2">Stage 2 匿名审稿</a>
+      <a class="{{ 'active' if active == 'stage3' else '' }}" href="/stage3">Stage 3 修订打包</a>
+    </nav>
+  </header>
+  <main>
+    <div id="notice-region" aria-live="polite">
+      {% if notice %}
+        <div class="notice ok">{{ notice }}{% if download %}<a href="/downloads/{{ download }}" download>下载/另存为</a>{% endif %}</div>
+      {% endif %}
+      {% if error %}
+        <div class="notice error">{{ error }}</div>
+      {% endif %}
+    </div>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

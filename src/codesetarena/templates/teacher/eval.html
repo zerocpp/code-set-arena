@@ -1,0 +1,196 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>正式评测</h1>
+    <p>先选择一款模型执行正式评测，再从已执行模型中选择需要展示的结果列。</p>
+  </div>
+  <form method="post" action="/eval/reset" onsubmit="return confirm('确定要重置正式评测吗？这会清空助教正式评测运行记录和导出包。');">
+    <button type="submit" class="danger-quiet">重置正式评测</button>
+  </form>
+</section>
+
+<section class="panel" id="eval-run-panel">
+  <h2>选择模型执行</h2>
+  <p class="muted">每次只执行一款模型。缓存优先会跳过已有合法记录；强制执行会追加新的正式评测记录。</p>
+  <form id="eval-job-form" class="eval-run-controls" method="post" action="/eval/jobs">
+    <div class="eval-inline-field">
+      <span class="eval-inline-label">模型
+      <span class="help-icon" data-tooltip="模型来自设置页的模型列表。每次正式评测只选择其中一款执行。">?</span>
+      </span>
+      <select name="model" required>
+        {% for model in settings_models %}
+        <option value="{{ model }}">{{ model }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="eval-inline-field">
+      <span class="eval-inline-label">执行模式
+      <span class="help-icon" data-tooltip="缓存优先会复用当前题目快照下已有合法记录；强制执行会为每道题追加新记录。">?</span>
+      </span>
+      <select name="mode">
+        <option value="cache_first">缓存优先</option>
+        <option value="force">强制执行</option>
+      </select>
+    </div>
+    <button type="submit">开始正式评测</button>
+  </form>
+  <div id="eval-job-progress" class="eval-progress" aria-live="polite">
+    {% if active_job %}
+    <div class="progress-bar"><span style="width: {{ (active_job.completed + active_job.skipped + active_job.failed) * 100 / active_job.total if active_job.total else 0 }}%"></span></div>
+    <p>状态：{{ active_job.status }}；总题数：{{ active_job.total }}；完成：{{ active_job.completed }}；跳过：{{ active_job.skipped }}；失败：{{ active_job.failed }}</p>
+    <p>当前：{{ active_job.current_student_number or '无' }} {{ active_job.current_problem_id or '' }}；已用时：{{ active_job.elapsed_seconds }} 秒；预计剩余：{{ active_job.eta_seconds or '未知' }} 秒。</p>
+    {% if active_job.last_error %}<p class="error-text">最近错误：{{ active_job.last_error }}</p>{% endif %}
+    {% else %}
+    <p class="muted">暂无正在执行的正式评测任务。</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="panel" id="eval-display-panel">
+  <h2>选择模型展示</h2>
+  <p class="muted">这里只能选择已经执行过正式评测的模型。删除标签只隐藏该列，不删除历史记录。</p>
+  <form id="eval-display-add-form" class="inline-form" method="post" action="/eval/display-models/add">
+    <label>已执行模型
+      <span class="help-icon" data-tooltip="下拉框只列出已有正式评测记录的模型。">?</span>
+      <select name="model">
+        {% for model in executed_models %}
+        <option value="{{ model }}">{{ model }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit" {% if not executed_models %}disabled{% endif %}>添加展示列</button>
+  </form>
+  <div class="tag-list" id="eval-display-tags">
+    {% for model in display_models %}
+    <span class="model-tag" data-model="{{ model }}">{{ model }} <button type="button" data-remove-display-model="{{ model }}" aria-label="隐藏 {{ model }}">×</button></span>
+    {% else %}
+    <span class="muted">还没有选择展示模型。</span>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>正式评测列表</h2>
+  <p class="muted">红色背景表示该项数据缺失或当前没有合法正式评测结果。</p>
+  <div class="eval-table-wrap">
+    <table class="eval-table">
+      <thead>
+        <tr>
+          <th>学号</th>
+          <th>姓名</th>
+          <th>题目 ID</th>
+          <th>自测不pass/合法</th>
+          <th>题目质量评分</th>
+          <th>作者评分均值</th>
+          {% for model in display_models %}
+          <th>{{ model }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in eval_rows %}
+        {% set row_key = row.student_number ~ ':' ~ row.problem_id %}
+        <tr>
+          {% if row.student_rowspan %}
+          <td rowspan="{{ row.student_rowspan }}">{{ row.student_number }}</td>
+          <td rowspan="{{ row.student_rowspan }}">{{ row.name }}</td>
+          {% endif %}
+          <td class="{{ 'missing-cell' if not row.has_revision else '' }}">
+            <a href="/eval/problems/{{ row.student_number }}/{{ row.problem_id }}" target="_blank">{{ row.problem_id }}</a>
+            <div class="muted">{{ row.title }}</div>
+          </td>
+          <td>{{ row.self_test_summary }}</td>
+          <td class="{{ 'missing-cell' if not row.quality_scores else '' }}">{{ row.quality_scores_text }}</td>
+          <td class="{{ 'missing-cell' if not row.author_ratings else '' }}">{{ row.author_rating_text }}</td>
+          {% for model in display_models %}
+          {% set result = eval_results[row_key][model] %}
+          <td class="{{ 'missing-cell' if result.missing or result.invalid_manual_selection else '' }}">
+            {% if result.run %}
+            <a href="/eval/problems/{{ row.student_number }}/{{ row.problem_id }}?model={{ model | urlencode }}" target="_blank">{{ result.run.verdict }}</a>
+            <div class="muted">{{ result.selection_source }}</div>
+            {% else %}
+            未运行
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ 6 + display_models|length }}">暂无可评测题目。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+(() => {
+  const progress = document.querySelector("#eval-job-progress");
+  const renderProgress = (job) => {
+    const processed = (job.completed || 0) + (job.skipped || 0) + (job.failed || 0);
+    const total = job.total || 0;
+    const percent = total ? Math.round(processed * 100 / total) : 0;
+    progress.innerHTML = `
+      <div class="progress-bar"><span style="width: ${percent}%"></span></div>
+      <p>状态：${job.status}；总题数：${total}；完成：${job.completed || 0}；跳过：${job.skipped || 0}；失败：${job.failed || 0}</p>
+      <p>当前：${job.current_student_number || "无"} ${job.current_problem_id || ""}；已用时：${job.elapsed_seconds || 0} 秒；预计剩余：${job.eta_seconds ?? "未知"} 秒。</p>
+      ${job.last_error ? `<p class="error-text">最近错误：${job.last_error}</p>` : ""}
+    `;
+  };
+
+  const pollJob = async (jobId) => {
+    const response = await fetch(`/eval/jobs/${jobId}`, {headers: {"Accept": "application/json"}});
+    const job = await response.json();
+    if (!response.ok || !job.ok) {
+      progress.innerHTML = `<p class="error-text">${job.message || "读取进度失败"}</p>`;
+      return;
+    }
+    renderProgress(job);
+    if (job.status === "pending" || job.status === "running") {
+      window.setTimeout(() => pollJob(jobId), 800);
+    } else {
+      window.setTimeout(() => window.location.reload(), 800);
+    }
+  };
+
+  document.querySelector("#eval-job-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const response = await fetch(form.action, {
+      method: "POST",
+      body: new FormData(form),
+      headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      progress.innerHTML = `<p class="error-text">${payload.message || "启动正式评测失败"}</p>`;
+      return;
+    }
+    renderProgress(payload);
+    pollJob(payload.job_id);
+  });
+
+  document.querySelector("#eval-display-add-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const response = await fetch(form.action, {method: "POST", body: new FormData(form), headers: {"Accept": "application/json"}});
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      alert(payload.message || "添加展示模型失败");
+      return;
+    }
+    window.location.reload();
+  });
+
+  document.querySelector("#eval-display-tags")?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-remove-display-model]");
+    if (!button) return;
+    const body = new FormData();
+    body.set("model", button.dataset.removeDisplayModel);
+    const response = await fetch("/eval/display-models/remove", {method: "POST", body, headers: {"Accept": "application/json"}});
+    if (response.ok) window.location.reload();
+  });
+
+})();
+</script>
+{% endblock %}

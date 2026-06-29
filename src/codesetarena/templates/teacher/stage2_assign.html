@@ -1,0 +1,61 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>Stage 2 审稿分配</h1>
+    <p>按“每道题总共需要几份审稿意见”生成匿名审稿任务包，其中 1 份固定分配给 AI。</p>
+  </div>
+  <form method="post" action="/stage2/assign/reset" onsubmit="return confirm('确定要重置 Stage 2 审稿分配吗？这会清空已生成的审稿任务包，并清空依赖它的收审稿包、反馈、修订和评测数据。');">
+    <button type="submit" class="danger-quiet">重置分配</button>
+  </form>
+</section>
+<section class="panel">
+  <form method="post" action="/stage2/assign" class="inline-form">
+    <label>每题总审稿份数
+      <span class="help-icon" data-tooltip="填写每道题最终需要几份审稿意见，记为 x。其中 1 份固定交给 AI，剩余 x-1 份由学生互审。若每名学生提交 {{ problems_per_student }} 道题，每位学生审稿人大约会收到 {{ problems_per_student }} × (x-1) 道匿名题。">?</span>
+      <input name="reviews_per_problem" value="{{ default_reviews_per_problem }}" maxlength="{{ limits.reviews_per_problem }}" inputmode="numeric" pattern="[0-9]{1,2}">
+    </label>
+    <button type="submit">生成审稿任务包</button>
+  </form>
+  <p>AI 审稿任务包：AI-teacher-stage2-review-assignment.tar.gz</p>
+  <p>批量包名：teacher-stage2-review-assignments.tar.gz</p>
+</section>
+<section class="panel">
+  <h2>当前分配</h2>
+  <pre>{{ state.assignments }}</pre>
+</section>
+<section class="panel">
+  <h2>匿名用户映射</h2>
+  <table>
+    <tr><th>匿名用户 ID</th><th>真实用户 ID</th><th>姓名</th><th>班级</th><th>角色</th></tr>
+    {% for item in state.stage2_assignment_manifest.anonymous_user_map %}
+    <tr>
+      <td><code>{{ item.anonymous_user_id }}</code></td>
+      <td><code>{{ item.real_user_id }}</code></td>
+      <td>{{ item.name }}</td>
+      <td>{{ item.class_id }}</td>
+      <td>{{ item.role }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5">暂无匿名用户映射。请先生成审稿任务包。</td></tr>
+    {% endfor %}
+  </table>
+</section>
+<section class="panel">
+  <h2>匿名题目映射</h2>
+  <table>
+    <tr><th>匿名题目 ID</th><th>真实题目 ID</th><th>作者学号</th><th>匿名作者 ID</th><th>标题</th></tr>
+    {% for item in state.stage2_assignment_manifest.anonymous_problem_map %}
+    <tr>
+      <td><code>{{ item.anonymous_problem_id }}</code></td>
+      <td><code>{{ item.real_problem_id }}</code></td>
+      <td><code>{{ item.author_student_number }}</code></td>
+      <td><code>{{ item.anonymous_author_id }}</code></td>
+      <td>{{ item.title }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5">暂无匿名题目映射。请先生成审稿任务包。</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

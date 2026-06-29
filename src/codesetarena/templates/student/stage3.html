@@ -1,0 +1,808 @@
+{% extends "student/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>Stage 3 修订与提交</h1>
+    <p>根据审稿意见修订题目，完成参考答案校验和模型自测后，导出最终修订包。</p>
+  </div>
+</section>
+
+<section class="panel stage-actions-panel">
+  <div class="heading-title">
+    <h2>清空当前 Stage 与导入包</h2>
+    <span class="help-icon" data-tooltip="清空当前 Stage 会删除已导入的修订反馈、作者回应和已导出的 Stage 3 修订包。导入包会替换当前修订反馈并同步学生信息。">?</span>
+  </div>
+  <div class="actions">
+  <form method="post" action="/stage3/reset" onsubmit="return confirm('确定要重置 Stage 3 吗？这会清空已导入的修订反馈、作者回应和已导出的修订包。');">
+    <button type="submit" class="danger-quiet">清空当前 Stage</button>
+  </form>
+    <form method="post" action="/stage3/import" enctype="multipart/form-data" class="inline-form">
+      <input type="file" name="file" accept=".tar.gz,application/gzip" required>
+      <button type="submit">导入修订反馈包</button>
+    </form>
+  </div>
+  <p class="muted">文件名：{学号}-teacher-stage3-review-feedback.tar.gz。导入后会同步学生信息，并替换当前修订反馈。</p>
+</section>
+
+{% include "student/student_info.html" %}
+
+{% if state.feedback %}
+<form id="stage3-package-form" method="post" action="/stage3/package" data-stage3-ajax novalidate></form>
+{% for group in stage3_review_groups %}
+<section class="panel stage3-problem-card" id="stage3-problem-{{ group.problem_id }}">
+  <div class="heading-title">
+    <h2>{{ group.problem_id }}{% if group.problem %} · {{ group.problem.title }}{% endif %}</h2>
+    <span class="help-icon" data-tooltip="本题会以修订后的完整题目、选中的模型运行记录，以及审稿意见评分和回应建议进入最终提交包。">?</span>
+  </div>
+  {% if group.problem %}
+  <p class="muted stage3-problem-note">本题收到 {{ group.reviews | length }} 条审稿意见。修改题目后，请重新校验参考答案并运行模型自测。</p>
+
+  <section
+    class="problem-summary-panel problem-progress-panel"
+    aria-live="polite"
+    data-status-progress
+    data-stage3-progress
+    data-base-completed-steps="{{ group.problem_summary.base_completed_steps }}"
+    data-total-steps="{{ group.problem_summary.progress_steps | length }}"
+    data-requires-review-response="{{ 'true' if group.problem_summary.review_required else 'false' }}"
+  >
+    <div class="progress-heading">
+      <div class="heading-title">
+        <h2>题目状态</h2>
+        <span class="help-icon" data-tooltip="进度从左到右依次表示：题目草稿、参考答案校验、有效运行记录选择、审稿意见评分与回应。卡住时请按下方提示处理。">?</span>
+      </div>
+      <p class="problem-progress-message" data-progress-message>{{ group.problem_summary.progress_message }}</p>
+    </div>
+    <div
+      class="problem-progress-track"
+      role="progressbar"
+      aria-label="修订题目完成进度"
+      aria-valuemin="0"
+      aria-valuemax="{{ group.problem_summary.progress_steps | length }}"
+      aria-valuenow="{{ group.problem_summary.completed_steps }}"
+      data-progress-track
+      style="grid-template-columns: repeat({{ group.problem_summary.progress_steps | length }}, minmax(0, 1fr));"
+    >
+      {% for step in group.problem_summary.progress_steps %}
+      <div class="problem-progress-cell {{ 'complete' if step.complete else '' }}" data-progress-cell data-step-key="{{ step.key }}">
+        <span>{{ step.label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <form id="stage3-editor-{{ group.problem_id }}" method="post" action="/stage3/problems/{{ group.problem.problem_id }}/validate" class="problem-editor stage3-editor" data-stage3-ajax data-stage3-target="stage3-problem-{{ group.problem_id }}">
+    <section class="stage3-detail-section editor-section">
+      <div class="section-heading">
+        <div class="section-heading-copy">
+          <div class="heading-title">
+            <h2>题目信息</h2>
+            <span class="help-icon" data-tooltip="这些字段会作为修订后的正式题目提交，并用于生成模型看到的题目。修改后需要重新保存并校验。">?</span>
+          </div>
+          <p class="muted">以下内容用于生成模型提示词。修改后需要重新校验，并重新执行或选择有效的模型运行记录。</p>
+        </div>
+      </div>
+
+      <div class="field-block">
+        <div class="field-title">
+          <h3>题面</h3>
+          <span class="help-icon" data-tooltip="写清楚要解决的问题、输入含义、输出要求、边界条件和排序规则。每组输入应只有一个确定的期望输出；不要设计依赖超时或极高复杂度的题目。">?</span>
+        </div>
+        <textarea name="statement" rows="16" required maxlength="{{ limits.problem_statement }}">{{ group.problem.statement }}</textarea>
+      </div>
+
+      <div class="field-block compact">
+        <div class="field-title">
+          <h3>函数签名</h3>
+          <span class="help-icon" data-tooltip="只写一行 Python 函数签名，例如 def solve(nums: list[int]) -> int:。函数名必须和参考答案一致。">?</span>
+        </div>
+        <input name="signature" value="{{ group.problem.signature }}" required maxlength="{{ limits.function_signature }}">
+      </div>
+
+      <div class="field-block">
+        <div class="field-title">
+          <h3>参考答案</h3>
+          <span class="help-icon" data-tooltip="填写完整可运行的标准解法。保存题目时系统会运行它并检查全部样例和测试数据；请使用清晰、可靠、复杂度合理的实现。">?</span>
+        </div>
+        <textarea name="reference_solution" rows="20" required maxlength="{{ limits.reference_solution }}">{{ group.problem.reference_solution }}</textarea>
+      </div>
+
+      <div class="field-block">
+        <div class="field-title">
+          <h3>样例数据</h3>
+          <span class="help-icon" data-tooltip="固定 {{ public_tests_per_problem }} 条样例数据。左侧输入参数填写 JSON 对象，例如 {&quot;x&quot;:-1}；右侧期望输出填写 JSON 值，例如 1。">?</span>
+        </div>
+        <div class="test-list">
+          {% for row in group.public_test_rows %}
+          <div class="test-row structured-test-row">
+            <span>p-{{ loop.index0 }}</span>
+            <label class="test-cell kwargs-cell">
+              <span class="inline-field-title">输入
+                <span class="help-icon" data-tooltip="填写函数参数 kwargs 的 JSON 对象，只写参数本身。例如函数签名是 def solve(x: int) -> int: 时，这里填写 {&quot;x&quot;:-1}。">?</span>
+              </span>
+              <input class="json-test-input" name="public_kwargs_{{ row.index }}" value="{{ row.kwargs_json }}" required maxlength="{{ limits.test_kwargs }}">
+            </label>
+            <label class="test-cell expected-cell">
+              <span class="inline-field-title">期望输出
+                <span class="help-icon" data-tooltip="填写期望返回值的 JSON 表达。例如数字写 1，字符串写 &quot;abc&quot;，列表写 [1,2]；不允许 expected.any_of。">?</span>
+              </span>
+              <input class="json-test-input" name="public_expected_{{ row.index }}" value="{{ row.expected_json }}" required maxlength="{{ limits.test_expected }}">
+            </label>
+            <span class="json-status" data-test-status aria-live="polite"></span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="field-block">
+        <div class="field-title">
+          <h3>测试数据</h3>
+          <span class="help-icon" data-tooltip="固定 {{ author_tests_per_problem }} 条测试数据。建议覆盖边界、反例和容易误解的情况；每条数据都应有唯一确定的期望输出，数据规模不要大到主要考察运行超时。">?</span>
+        </div>
+        <div class="test-list">
+          {% for row in group.author_test_rows %}
+          <div class="test-row structured-test-row">
+            <span>a-{{ loop.index0 }}</span>
+            <label class="test-cell kwargs-cell">
+              <span class="inline-field-title">输入
+                <span class="help-icon" data-tooltip="填写函数参数 kwargs 的 JSON 对象，只写参数本身。例如函数签名是 def solve(x: int) -> int: 时，这里填写 {&quot;x&quot;:-1}。">?</span>
+              </span>
+              <input class="json-test-input" name="author_kwargs_{{ row.index }}" value="{{ row.kwargs_json }}" required maxlength="{{ limits.test_kwargs }}">
+            </label>
+            <label class="test-cell expected-cell">
+              <span class="inline-field-title">期望输出
+                <span class="help-icon" data-tooltip="填写期望返回值的 JSON 表达。例如数字写 1，字符串写 &quot;abc&quot;，列表写 [1,2]；不允许 expected.any_of。">?</span>
+              </span>
+              <input class="json-test-input" name="author_expected_{{ row.index }}" value="{{ row.expected_json }}" required maxlength="{{ limits.test_expected }}">
+            </label>
+            <span class="json-status" data-test-status aria-live="polite"></span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="stage3-detail-section validation-actions">
+      <div class="heading-title">
+        <h2>保存与校验</h2>
+        <span class="help-icon" data-tooltip="点击“保存题目并校验参考答案”会保存当前题目，并用参考答案执行 {{ public_tests_per_problem }} 条样例数据和 {{ author_tests_per_problem }} 条测试数据；全部通过后才能执行运行。">?</span>
+      </div>
+      <p class="muted">“保存题目并校验参考答案”会执行参考答案和 7 个测试用例。题目无异常且全部通过后，才能执行运行。</p>
+      <div class="actions">
+        <button type="submit">保存题目并校验参考答案</button>
+      </div>
+      <div class="validation-status stage3-action-status" aria-live="polite">
+        {% if group.validation_view.ok %}
+          <span class="status-pill ok">校验通过</span>
+        {% elif group.validation_view.stale %}
+          <span class="status-pill warn">已失效</span>
+        {% elif group.validation_view.status == "failed" or group.validation_view.status == "error" %}
+          <span class="status-pill warn">未通过</span>
+        {% else %}
+          <span class="status-pill warn">未校验</span>
+        {% endif %}
+        {% if group.validation_view.status == "error" %}
+          <span class="muted">{{ group.validation_view.message }}</span>
+        {% endif %}
+      </div>
+      {% if group.validation_view.test_results %}
+      <div class="panel-subsection validation-results">
+        <div class="heading-title">
+          <h2>参考答案执行结果</h2>
+          <span class="help-icon" data-tooltip="这里展示“保存题目”时参考答案在全部 7 个测试用例上的执行结果。">?</span>
+        </div>
+        <table>
+          <thead><tr><th>用例 ID</th><th>集合</th><th>结果</th><th>期望</th><th>实际/错误</th></tr></thead>
+          <tbody>
+          {% for case in group.validation_view.test_results %}
+            <tr>
+              <td>{{ case.case_id }}</td>
+              <td>{{ '样例数据' if case.test_set == 'public' else '测试数据' }}</td>
+              <td><span class="status-pill {{ 'ok' if case.verdict == 'passed' else 'warn' }}">{{ case.verdict }}</span></td>
+              <td><code>{{ case.expected | tojson }}</code></td>
+              <td>
+                {% if case.traceback %}
+                  {% if case.error_type %}<p><strong>{{ case.error_type }}</strong></p>{% endif %}
+                  {% if case.error %}<p>{{ case.error }}</p>{% endif %}
+                  <pre>{{ case.traceback }}</pre>
+                {% else %}
+                  <code>{{ case.actual | tojson }}</code>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="stage3-detail-section model-run-panel">
+      <div>
+        <div class="heading-title">
+          <h2>模型执行运行</h2>
+          <span class="help-icon" data-tooltip="参考答案完成校验且全部测试数据正确后，才能让模型尝试作答。题目内容一旦修改，需要重新保存并校验后再运行模型。">?</span>
+        </div>
+        {% if group.validation_view.ok %}
+          <p class="muted">当前题目已完成参考答案校验，可以执行模型运行。系统会保存本次模型作答记录，供后续打包提交。</p>
+        {% elif group.validation_view.status == "failed" or group.validation_view.status == "error" %}
+          <p class="muted">当前题目的参考答案未通过，暂不能执行模型运行。请先修正题目、测试数据或参考答案。</p>
+        {% else %}
+          <p class="muted">请先保存题目并校验参考答案；全部测试数据正确后，才能执行模型运行。</p>
+        {% endif %}
+      </div>
+
+      <div class="model-run-status">
+        {% if group.validation_view.ok %}
+          <span class="status-pill ok">可运行</span>
+          <span class="muted">提示词来自已校验通过的当前题目。</span>
+        {% else %}
+          <span class="status-pill warn">不可运行</span>
+          <span class="muted">题目尚未完成有效校验，或校验已失效。</span>
+        {% endif %}
+      </div>
+
+      <div class="prompt-preview-block">
+        <div class="heading-title">
+          <h3>模型提示词</h3>
+          <span class="help-icon" data-tooltip="这是执行 API 前将发送给模型的完整用户提示词，只读展示。">?</span>
+        </div>
+        <pre class="prompt-preview" aria-label="模型提示词">{% for part in group.official_prompt_parts %}<span class="prompt-part {{ 'problem' if part.kind == 'problem' else 'template' }}">{{ part.text }}</span>{% endfor %}</pre>
+      </div>
+
+      <div class="run-control-row">
+        <label class="model-picker">模型
+          <span class="help-icon" data-tooltip="选择本次要测试的模型。模型名称来自设置页中的模型列表。">?</span>
+          <select name="model">
+            {% for model in model_options %}
+              <option value="{{ model }}">{{ model }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="run-params">
+          <span class="status-pill">temperature={{ model_run_temperature }}</span>
+          <span class="status-pill">top_p={{ model_run_top_p }}</span>
+        </div>
+        <div class="actions">
+          <button type="submit" formaction="/stage3/problems/{{ group.problem.problem_id }}/run" {% if not group.validation_view.ok %}disabled{% endif %}>执行模型运行</button>
+        </div>
+      </div>
+    </section>
+
+  </form>
+
+  <form method="post" action="/stage3/problems/{{ group.problem.problem_id }}/runs/package-selection" class="stage3-detail-section" data-stage3-ajax data-stage3-target="stage3-problem-{{ group.problem_id }}" data-stage3-run-selection-form>
+    <div class="heading-title">
+      <h3>模型运行记录</h3>
+      <span class="help-icon" data-tooltip="最终修订包会包含这里选中的运行记录。请选择 {{ min_selected_runs_per_problem }}-{{ max_selected_runs_per_problem }} 条与当前修订题目匹配、记录完整的有效运行。">?</span>
+    </div>
+    {% if group.run_records_view %}
+    <table>
+      <thead><tr><th>打包</th><th>Run ID</th><th>模型</th><th>结果</th><th>温度</th><th>是否有效</th><th>状态</th><th>时间</th></tr></thead>
+      <tbody>
+      {% for row in group.run_records_view %}
+      {% set run = row.run %}
+      <tr class="{{ 'selected-row' if group.selected_run and group.selected_run.run_id == run.run_id else '' }}">
+        <td>
+          <input type="checkbox" name="package_run_ids" value="{{ run.run_id }}" data-stage3-package-run-checkbox {% if row.selected_for_package %}checked{% endif %} {% if not row.selectable_for_package %}disabled{% endif %} aria-label="选择 {{ run.run_id }} 用于打包">
+        </td>
+        <td><code>{{ run.run_id }}</code></td>
+        <td>{{ run.model }}</td>
+        <td><span class="status-pill {{ 'ok' if run.verdict == 'passed' else 'warn' }}">{{ run.verdict }}</span></td>
+        <td>{{ run.temperature | default('未记录') }}</td>
+        <td><span class="status-pill {{ 'ok' if row.matches_current else 'warn' }}" title="{{ row.validity_reason }}">{{ row.validity_status }}</span></td>
+        <td><span class="status-pill {{ 'ok' if row.selected_for_package else ('warn' if not row.selectable_for_package else '') }}">{{ row.package_status }}</span></td>
+        <td>{{ run.created_at_display }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="run-selection-actions">
+      <span class="muted">勾选会自动保存；导出包要求每道题选择 {{ min_selected_runs_per_problem }}-{{ max_selected_runs_per_problem }} 条当前有效的运行记录。</span>
+    </div>
+    {% else %}
+    <p class="muted">暂无模型运行记录。请先保存并校验参考答案，再执行模型运行。</p>
+    {% endif %}
+  </form>
+
+  <div class="stage3-detail-section selected-run-detail">
+    <div class="heading-title">
+      <h3>选中模型运行详情</h3>
+      <span class="help-icon" data-tooltip="默认展示最近一次当前有效的运行；如果没有有效记录，则展示最近记录并标识为无效。">?</span>
+    </div>
+    {% if group.run_records_view %}
+      {% for row in group.run_records_view %}
+      {% set detail_run = row.run %}
+      {% if group.selected_run and group.selected_run.run_id == detail_run.run_id %}
+      <div class="run-detail-card">
+        <p>
+          <span class="status-pill {{ 'ok' if row.matches_current else 'warn' }}" title="{{ row.validity_reason }}">{{ row.validity_status }}</span>
+          <span class="muted">{{ row.validity_reason }}</span>
+        </p>
+        <table>
+          <tbody>
+            <tr><th>Run ID</th><td>{{ detail_run.run_id }}</td><th>来源</th><td>{{ detail_run.run_origin_display }}</td></tr>
+            <tr><th>Base URL</th><td>{{ detail_run.base_url }}</td><th>模型</th><td>{{ detail_run.model }}</td></tr>
+            <tr><th>结果</th><td>{{ detail_run.verdict }}</td><th>时间</th><td>{{ detail_run.created_at_display }}</td></tr>
+            <tr><th>temperature</th><td>{{ detail_run.temperature | default('未记录') }}</td><th>top_p</th><td>{{ detail_run.top_p | default('未记录') }}</td></tr>
+          </tbody>
+        </table>
+        <div class="heading-title">
+          <h3>本次运行提示词</h3>
+          <span class="help-icon" data-tooltip="这里是该次模型运行实际使用的完整提示词，方便核对运行记录与当前题目的差异。">?</span>
+        </div>
+        <pre class="prompt-preview">{% if detail_run.prompt_parts %}{% for part in detail_run.prompt_parts %}<span class="prompt-part {{ 'problem' if part.kind == 'problem' else 'template' }}">{{ part.text }}</span>{% endfor %}{% else %}{{ detail_run.prompt | default('旧记录未保存提示词') }}{% endif %}</pre>
+        <div class="panel-subsection">
+          <div class="heading-title">
+            <h3>返回代码</h3>
+            <span class="help-icon" data-tooltip="这里展示从模型回答中提取出的函数代码，用于查看模型这次到底提交了什么答案。">?</span>
+          </div>
+          <pre>{{ detail_run.extracted_code }}</pre>
+        </div>
+        <div class="heading-title">
+          <h3>模型运行测试结果</h3>
+          <span class="help-icon" data-tooltip="逐条展示该次运行在样例数据和测试数据上的期望值、实际值、错误信息和通过状态。">?</span>
+        </div>
+        <table>
+          <thead><tr><th>用例 ID</th><th>集合</th><th>结果</th><th>期望</th><th>实际/错误</th></tr></thead>
+          <tbody>
+          {% for case in detail_run.test_results %}
+            <tr>
+              <td>{{ case.case_id }}</td>
+              <td>{{ '样例数据' if case.test_set == 'public' else '测试数据' }}</td>
+              <td><span class="status-pill {{ 'ok' if case.verdict == 'passed' else 'warn' }}">{{ case.verdict }}</span></td>
+              <td><code>{{ case.expected | tojson }}</code></td>
+              <td>{% if case.traceback %}<pre>{{ case.traceback }}</pre>{% else %}<code>{{ case.actual | tojson }}</code>{% endif %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% endfor %}
+    {% else %}
+      <p class="muted">暂无可展示的模型运行详情。</p>
+    {% endif %}
+  </div>
+  <section class="stage3-detail-section editor-section">
+    <div class="section-heading">
+      <div class="section-heading-copy">
+        <div class="heading-title">
+          <h2>说明</h2>
+          <span class="help-icon" data-tooltip="这里适合写修订备注、构造思路或希望助教关注的点；不会出现在模型看到的题目中。">?</span>
+        </div>
+        <p class="muted">说明不会出现在模型看到的题目中，可写构造思路、来源声明和希望助教关注的点。</p>
+      </div>
+    </div>
+    <div class="field-block">
+      <textarea form="stage3-editor-{{ group.problem_id }}" name="notes" rows="7" maxlength="{{ limits.notes }}">{{ group.problem.notes }}</textarea>
+    </div>
+  </section>
+  {% else %}
+  <p class="muted">本地未找到这道题。请确认没有删除原始题目，并重新导入正确的修订反馈包。</p>
+  {% endif %}
+
+  <div class="heading-title stage3-review-heading">
+    <h3>审稿意见评分与回应建议</h3>
+    <span class="help-icon" data-tooltip="每条审稿意见都必须填写评分和回应建议。评分表达你对这条意见的采纳程度或实际帮助。">?</span>
+  </div>
+  {% if group.reviews %}
+    {% for item in group.reviews %}
+    {% set review = item.review or {} %}
+    {% set saved_response = item.saved_response or {} %}
+    <div class="panel-subsection review-feedback-card">
+      <h4>审稿意见 {{ loop.index }} · {{ item.review_id }}</h4>
+      <p><strong>结论：</strong>{{ review.conclusion or review.severity or '未记录' }}</p>
+      <p><strong>建议：</strong>{{ review.explanation or review.summary or review.suggestion or '未记录' }}</p>
+      <label class="field-block compact">
+        <span class="inline-field-title">审稿意见评分
+          <span class="help-icon" data-tooltip="请选择这条审稿意见对你这道题的实际帮助程度。5 分表示对本题改进非常关键，1 分表示基本无帮助；未评分不能导出修订包。">?</span>
+        </span>
+        <select form="stage3-package-form" name="rating_{{ item.review_id }}" required data-author-review-rating>
+          <option value="">未评分</option>
+          {% for value, label in rating_options %}
+          <option value="{{ value }}" {% if saved_response.get('rating') == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span class="inline-field-title">回应建议
+          <span class="help-icon" data-tooltip="说明你如何根据这条审稿意见修订题目，或为什么只部分采纳/没有采纳。最多 {{ limits.author_response }} 字符。">?</span>
+        </span>
+        <textarea form="stage3-package-form" name="response_{{ item.review_id }}" rows="4" maxlength="{{ limits.author_response }}" required data-author-review-response>{{ saved_response.get('response', '') }}</textarea>
+      </label>
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="muted">这道题暂无审稿意见，但如果它已被选入 Stage 1 打包，仍会作为修订后的完整题目一起提交。</p>
+  {% endif %}
+</section>
+{% endfor %}
+<section class="panel package">
+  <h2>导出修订提交包</h2>
+  <p>文件名：{学号}-student-stage3-revision.tar.gz</p>
+  <p class="muted">导出的包会包含已选择的 {{ problems_per_student }} 道修订题目、每题 {{ min_selected_runs_per_problem }}-{{ max_selected_runs_per_problem }} 条当前有效运行记录，以及全部审稿意见的评分和回应建议。</p>
+  <button type="submit" form="stage3-package-form">导出修订提交包</button>
+  <div id="stage3-package-status" class="form-inline-message" aria-live="polite"></div>
+</section>
+{% endif %}
+<script>
+  const replaceStage3FromDocument = (nextDocument, selector) => {
+    const current = document.querySelector(selector);
+    const next = nextDocument.querySelector(selector);
+    if (current && next) {
+      current.replaceWith(next);
+    }
+  };
+
+  const showStage3RequestError = () => {
+    const noticeRegion = document.querySelector("#notice-region");
+    if (noticeRegion) {
+      noticeRegion.innerHTML = '<div class="notice error">请求失败，请稍后重试。</div>';
+    }
+    showStage3PackageStatus("请求失败，请稍后重试。", true);
+  };
+
+  const showStage3PackageStatus = (message, isError) => {
+    const status = document.querySelector("#stage3-package-status");
+    if (!status) {
+      return;
+    }
+    status.textContent = message;
+    status.className = isError ? "form-inline-message error-text" : "form-inline-message ok-text";
+  };
+
+  const updateStage3PackageStatusFromDocument = (nextDocument, form) => {
+    if (form.id !== "stage3-package-form") {
+      return;
+    }
+    const nextNotice = nextDocument.querySelector("#notice-region .notice");
+    const status = document.querySelector("#stage3-package-status");
+    if (!nextNotice || !status) {
+      return;
+    }
+    status.innerHTML = nextNotice.innerHTML;
+    status.className = nextNotice.classList.contains("error")
+      ? "form-inline-message error-text"
+      : "form-inline-message ok-text";
+  };
+
+  const stage3AssociatedControls = (form) => {
+    if (!form.id) {
+      return [];
+    }
+    return Array.from(document.querySelectorAll(`[form="${form.id}"]`))
+      .filter((control) => control.name && !control.disabled);
+  };
+
+  const buildStage3FormData = (form) => {
+    const formData = new FormData(form);
+    stage3AssociatedControls(form).forEach((control) => {
+      if (formData.has(control.name)) {
+        return;
+      }
+      if ((control.type === "checkbox" || control.type === "radio") && !control.checked) {
+        return;
+      }
+      formData.append(control.name, control.value);
+    });
+    return formData;
+  };
+
+  const validateStage3PackageForm = (form) => {
+    if (form.id !== "stage3-package-form") {
+      return true;
+    }
+    const missing = [];
+    stage3AssociatedControls(form).forEach((control) => {
+      control.classList.remove("invalid");
+      const value = String(control.value || "").trim();
+      if (control.required && !value) {
+        control.classList.add("invalid");
+        missing.push(control.tagName === "SELECT" ? "审稿意见评分" : "回应建议");
+      }
+    });
+    if (missing.length === 0) {
+      showStage3PackageStatus("正在生成修订提交包...", false);
+      return true;
+    }
+    const message = `请先补全${Array.from(new Set(missing)).join("和")}。`;
+    showStage3PackageStatus(message, true);
+    const noticeRegion = document.querySelector("#notice-region");
+    if (noticeRegion) {
+      noticeRegion.innerHTML = `<div class="notice error">${message}</div>`;
+    }
+    return false;
+  };
+
+  const escapeStage3Html = (value) => String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
+  const handleStage3PackageJson = async (response) => {
+    const payload = await response.json();
+    const message = payload.message || (payload.ok ? "修订提交包已导出" : "导出失败");
+    let html = escapeStage3Html(message);
+    if (payload.ok && payload.download) {
+      html += ` <a href="/downloads/${encodeURIComponent(payload.download)}" download>下载/另存为</a>`;
+    }
+    const noticeRegion = document.querySelector("#notice-region");
+    if (noticeRegion) {
+      noticeRegion.innerHTML = `<div class="notice ${payload.ok ? "ok" : "error"}">${html}</div>`;
+    }
+    const status = document.querySelector("#stage3-package-status");
+    if (status) {
+      status.innerHTML = html;
+      status.className = payload.ok ? "form-inline-message ok-text" : "form-inline-message error-text";
+    }
+  };
+
+  const updateStage3PackageSuccessFromUrl = (url) => {
+    const parsed = new URL(url, window.location.href);
+    const download = parsed.searchParams.get("download") || "";
+    const message = parsed.searchParams.get("notice") || "Stage 3 修订提交包已导出";
+    let html = escapeStage3Html(message);
+    if (download) {
+      html += ` <a href="/downloads/${encodeURIComponent(download)}" download>下载/另存为</a>`;
+    }
+    const noticeRegion = document.querySelector("#notice-region");
+    if (noticeRegion) {
+      noticeRegion.innerHTML = `<div class="notice ok">${html}</div>`;
+    }
+    const status = document.querySelector("#stage3-package-status");
+    if (status) {
+      status.innerHTML = html;
+      status.className = "form-inline-message ok-text";
+    }
+  };
+
+  const bindStage3AjaxForms = () => {
+    document.querySelectorAll("form[data-stage3-ajax]:not([data-stage3-bound])").forEach((form) => {
+      form.dataset.stage3Bound = "true";
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submitter = event.submitter;
+        const action = submitter?.hasAttribute("formaction") ? submitter.formAction : form.action;
+        const method = (
+          submitter?.hasAttribute("formmethod") ? submitter.formMethod : form.method || "post"
+        ).toUpperCase();
+        const savedScrollX = window.scrollX;
+        const savedScrollY = window.scrollY;
+        if (!validateStage3PackageForm(form)) {
+          window.scrollTo(savedScrollX, savedScrollY);
+          return;
+        }
+        if (submitter) {
+          submitter.disabled = true;
+        }
+        try {
+          const body = buildStage3FormData(form);
+          if (form.id === "stage3-package-form") {
+            body.set("_response_format", "json");
+          }
+          const response = await fetch(action, {
+            method,
+            body,
+            headers: { "X-Requested-With": "fetch" },
+          });
+          if (
+            form.id === "stage3-package-form" &&
+            response.headers.get("content-type")?.includes("application/json")
+          ) {
+            await handleStage3PackageJson(response);
+            window.scrollTo(savedScrollX, savedScrollY);
+            return;
+          }
+          const html = await response.text();
+          const nextDocument = new DOMParser().parseFromString(html, "text/html");
+          replaceStage3FromDocument(nextDocument, "#notice-region");
+          updateStage3PackageStatusFromDocument(nextDocument, form);
+          if (form.id === "stage3-package-form" && !nextDocument.querySelector("#notice-region .notice")) {
+            if (response.ok) {
+              updateStage3PackageSuccessFromUrl(response.url);
+            } else {
+              showStage3PackageStatus(`提交失败：HTTP ${response.status}`, true);
+            }
+          }
+          const targetId = form.dataset.stage3Target;
+          if (targetId) {
+            replaceStage3FromDocument(nextDocument, `#${CSS.escape(targetId)}`);
+          }
+          bindStage3AjaxForms();
+          bindStage3JsonValidation();
+          bindStage3EditorStaleState();
+          bindStage3RunSelectionAutosave();
+          bindStage3ReviewProgress();
+          window.scrollTo(savedScrollX, savedScrollY);
+        } catch (error) {
+          showStage3RequestError();
+          window.scrollTo(savedScrollX, savedScrollY);
+        } finally {
+          if (submitter && document.contains(submitter)) {
+            submitter.disabled = false;
+          }
+        }
+      });
+    });
+  };
+
+  const setStage3InputState = (input, ok) => {
+    input.classList.toggle("invalid", !ok);
+    input.classList.toggle("valid", ok);
+  };
+
+  const setStage3Progress = (card, completedSteps, message) => {
+    if (!card) {
+      return;
+    }
+    const panel = card.querySelector("[data-status-progress]");
+    if (!panel) {
+      return;
+    }
+    const track = panel.querySelector("[data-progress-track]");
+    const messageNode = panel.querySelector("[data-progress-message]");
+    const totalSteps = Number(panel.dataset.totalSteps || track?.getAttribute("aria-valuemax") || 0);
+    const safeCompleted = Math.max(0, Math.min(completedSteps, totalSteps));
+    if (track) {
+      track.setAttribute("aria-valuenow", String(safeCompleted));
+    }
+    panel.querySelectorAll("[data-progress-cell]").forEach((cell, index) => {
+      cell.classList.toggle("complete", index < safeCompleted);
+    });
+    if (messageNode) {
+      messageNode.textContent = message;
+    }
+  };
+
+  const updateStage3ReviewProgress = (card) => {
+    if (!card) {
+      return;
+    }
+    const panel = card.querySelector("[data-stage3-progress]");
+    if (!panel || panel.dataset.requiresReviewResponse !== "true") {
+      return;
+    }
+    const totalSteps = Number(panel.dataset.totalSteps || 0);
+    const baseCompletedSteps = Number(panel.dataset.baseCompletedSteps || 0);
+    if (baseCompletedSteps < totalSteps - 1) {
+      return;
+    }
+    const ratings = Array.from(card.querySelectorAll("[data-author-review-rating]"));
+    const responses = Array.from(card.querySelectorAll("[data-author-review-response]"));
+    const allComplete = (
+      ratings.length > 0
+      && ratings.every((input) => input.value.trim())
+      && responses.length === ratings.length
+      && responses.every((input) => input.value.trim())
+    );
+    setStage3Progress(
+      card,
+      allComplete ? totalSteps : totalSteps - 1,
+      allComplete ? "题目已满足当前 Stage 提交要求。" : "请完成审稿意见评分和回应。"
+    );
+  };
+
+  const markStage3ProblemStale = (card) => {
+    if (!card) {
+      return;
+    }
+    const validationStatus = card.querySelector(".stage3-action-status .status-pill");
+    if (validationStatus) {
+      validationStatus.textContent = "已失效";
+      validationStatus.className = "status-pill warn";
+    }
+    setStage3Progress(card, 1, "题目已修改，请重新保存并校验参考答案。");
+    card.querySelectorAll("[data-stage3-package-run-checkbox]").forEach((checkbox) => {
+      checkbox.checked = false;
+      checkbox.disabled = true;
+    });
+    const runButton = Array.from(card.querySelectorAll("button[formaction]")).find((button) =>
+      button.formAction.endsWith("/run")
+    );
+    if (runButton) {
+      runButton.disabled = true;
+    }
+  };
+
+  const parseStage3JsonField = (value, label) => {
+    if (!value.trim()) {
+      return { ok: false, error: `${label}不能为空` };
+    }
+    try {
+      return { ok: true, value: JSON.parse(value) };
+    } catch (error) {
+      return { ok: false, error: `${label} JSON 格式错误` };
+    }
+  };
+
+  const validateStage3Row = (row) => {
+    const inputs = row.querySelectorAll(".json-test-input");
+    const kwargsInput = inputs[0];
+    const expectedInput = inputs[1];
+    const status = row.querySelector("[data-test-status]");
+    if (!kwargsInput || !expectedInput || !status) {
+      return;
+    }
+    const errors = [];
+    const kwargs = parseStage3JsonField(kwargsInput.value, "输入");
+    if (!kwargs.ok) {
+      errors.push(kwargs.error);
+    } else if (!kwargs.value || Array.isArray(kwargs.value) || typeof kwargs.value !== "object") {
+      errors.push('输入必须是 JSON 对象，例如 {"x":-1}');
+    }
+    const expected = parseStage3JsonField(expectedInput.value, "期望输出");
+    if (!expected.ok) {
+      errors.push(expected.error);
+    } else if (
+      expected.value &&
+      !Array.isArray(expected.value) &&
+      typeof expected.value === "object" &&
+      Object.prototype.hasOwnProperty.call(expected.value, "any_of")
+    ) {
+      errors.push("期望输出不允许 any_of");
+    }
+    const ok = errors.length === 0;
+    setStage3InputState(kwargsInput, ok || !errors.some((item) => item.startsWith("输入")));
+    setStage3InputState(expectedInput, ok || !errors.some((item) => item.startsWith("期望输出")));
+    status.textContent = ok ? "格式正确" : errors.join("；");
+    status.className = ok ? "json-status ok-text" : "json-status error-text";
+  };
+
+  const bindStage3JsonValidation = () => {
+    document.querySelectorAll(".stage3-problem-card .structured-test-row:not([data-stage3-json-bound])").forEach((row) => {
+      row.dataset.stage3JsonBound = "true";
+      validateStage3Row(row);
+      row.querySelectorAll(".json-test-input").forEach((input) => {
+        input.addEventListener("input", () => {
+          validateStage3Row(row);
+          markStage3ProblemStale(row.closest(".stage3-problem-card"));
+        });
+      });
+    });
+  };
+
+  const bindStage3EditorStaleState = () => {
+    document.querySelectorAll(".stage3-editor:not([data-stage3-stale-bound])").forEach((form) => {
+      form.dataset.stage3StaleBound = "true";
+      const associated = form.id
+        ? Array.from(document.querySelectorAll(`[form="${CSS.escape(form.id)}"]`))
+        : [];
+      [...form.querySelectorAll("textarea, input"), ...associated].forEach((input) => {
+        input.addEventListener("input", () => markStage3ProblemStale(form.closest(".stage3-problem-card")));
+      });
+    });
+  };
+
+  const bindStage3RunSelectionAutosave = () => {
+    document.querySelectorAll("[data-stage3-package-run-checkbox]:not([data-stage3-run-bound])").forEach((checkbox) => {
+      checkbox.dataset.stage3RunBound = "true";
+      checkbox.addEventListener("change", () => {
+        const form = checkbox.closest("[data-stage3-run-selection-form]");
+        if (form) {
+          form.requestSubmit();
+        }
+      });
+    });
+  };
+
+  const bindStage3ReviewProgress = () => {
+    document.querySelectorAll(".stage3-problem-card:not([data-stage3-review-progress-bound])").forEach((card) => {
+      card.dataset.stage3ReviewProgressBound = "true";
+      card.querySelectorAll("[data-author-review-rating], [data-author-review-response]").forEach((input) => {
+        input.addEventListener("input", () => updateStage3ReviewProgress(card));
+        input.addEventListener("change", () => updateStage3ReviewProgress(card));
+      });
+      updateStage3ReviewProgress(card);
+    });
+  };
+
+  bindStage3AjaxForms();
+  bindStage3JsonValidation();
+  bindStage3EditorStaleState();
+  bindStage3RunSelectionAutosave();
+  bindStage3ReviewProgress();
+</script>
+{% endblock %}

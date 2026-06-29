@@ -1,0 +1,732 @@
+{% extends "student/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>{{ problem.problem_id }}</h1>
+    <p>Stage 1 题目详情</p>
+  </div>
+  <a class="button secondary" href="/stage1">返回题目列表</a>
+</section>
+
+<section class="problem-summary-panel problem-progress-panel" id="problem-summary-panel" aria-live="polite" data-status-progress>
+  <div class="progress-heading">
+    <div class="heading-title">
+      <h2>题目状态</h2>
+      <span class="help-icon" data-tooltip="进度从左到右依次表示：题目草稿、参考答案校验、有效运行记录选择。卡住时请按下方提示处理。">?</span>
+    </div>
+    <p class="problem-progress-message" data-progress-message>{{ problem_summary.progress_message }}</p>
+  </div>
+  <div
+    class="problem-progress-track"
+    role="progressbar"
+    aria-label="题目完成进度"
+    aria-valuemin="0"
+    aria-valuemax="{{ problem_summary.progress_steps | length }}"
+    aria-valuenow="{{ problem_summary.completed_steps }}"
+    data-progress-track
+    data-total-steps="{{ problem_summary.progress_steps | length }}"
+    style="grid-template-columns: repeat({{ problem_summary.progress_steps | length }}, minmax(0, 1fr));"
+  >
+    {% for step in problem_summary.progress_steps %}
+    <div class="problem-progress-cell {{ 'complete' if step.complete else '' }}" data-progress-cell data-step-key="{{ step.key }}">
+      <span>{{ step.label }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<form method="post" action="/stage1/problems/{{ problem.problem_id }}/save" class="problem-editor" id="problem-editor">
+  <section class="panel editor-section">
+    <div class="section-heading">
+      <div class="section-heading-copy">
+        <div class="heading-title">
+          <h2>题目信息</h2>
+          <span class="help-icon" data-tooltip="这里的内容会作为正式题目提交，并用于生成模型看到的题目。题目应有清楚边界和合理难度，参考答案和合理解法应尽量在 {{ execution_target_seconds }} 秒内完成。修改后需要重新保存并校验。">?</span>
+        </div>
+        <p class="muted">以下内容用于生成模型提示词。修改后需要重新校验，并重新执行或选择有效的模型运行记录。</p>
+      </div>
+    </div>
+
+    <div class="field-block">
+      <div class="field-title">
+        <h3>题面</h3>
+        <span class="help-icon" data-tooltip="写清楚要解决的问题、输入含义、输出要求、边界条件和排序规则。每组输入应只有一个确定的期望输出；不要设计依赖超时或极高复杂度的题目。">?</span>
+      </div>
+      <textarea name="statement" rows="16" required data-signature-field maxlength="{{ limits.problem_statement }}">{{ problem.statement }}</textarea>
+    </div>
+
+    <div class="field-block compact">
+      <div class="field-title">
+        <h3>函数签名</h3>
+        <span class="help-icon" data-tooltip="只写一行 Python 函数签名，例如 def solve(nums: list[int]) -> int:。函数名必须和参考答案一致。">?</span>
+      </div>
+      <input name="signature" value="{{ problem.signature }}" required data-signature-field maxlength="{{ limits.function_signature }}">
+    </div>
+
+    <div class="field-block">
+      <div class="field-title">
+        <h3>参考答案</h3>
+        <span class="help-icon" data-tooltip="填写完整可运行的标准解法。保存题目时系统会运行它并检查全部样例和测试数据；请使用清晰、可靠、复杂度合理的实现。">?</span>
+      </div>
+      <textarea name="reference_solution" rows="20" required data-signature-field maxlength="{{ limits.reference_solution }}">{{ problem.reference_solution }}</textarea>
+    </div>
+
+    <div class="field-block">
+      <div class="field-title">
+        <h3>样例数据</h3>
+        <span class="help-icon" data-tooltip="固定 {{ public_tests_per_problem }} 条样例数据。左侧输入参数填写 JSON 对象，例如 {&quot;x&quot;:-1}；右侧期望输出填写 JSON 值，例如 1。">?</span>
+      </div>
+      <div class="test-list">
+        {% for row in public_test_rows %}
+        <div class="test-row structured-test-row">
+          <span>p-{{ loop.index0 }}</span>
+          <label class="test-cell kwargs-cell">
+            <span class="inline-field-title">输入
+              <span class="help-icon" data-tooltip="填写函数参数 kwargs 的 JSON 对象，只写参数本身。例如函数签名是 def solve(x: int) -> int: 时，这里填写 {&quot;x&quot;:-1}。">?</span>
+            </span>
+            <input class="json-test-input" name="public_kwargs_{{ row.index }}" value="{{ row.kwargs_json }}" required data-test-kwargs data-signature-field maxlength="{{ limits.test_kwargs }}">
+          </label>
+          <label class="test-cell expected-cell">
+            <span class="inline-field-title">期望输出
+              <span class="help-icon" data-tooltip="填写期望返回值的 JSON 表达。例如数字写 1，字符串写 &quot;abc&quot;，列表写 [1,2]；不允许 expected.any_of。">?</span>
+            </span>
+            <input class="json-test-input" name="public_expected_{{ row.index }}" value="{{ row.expected_json }}" required data-test-expected data-signature-field maxlength="{{ limits.test_expected }}">
+          </label>
+          <span class="json-status" data-test-status aria-live="polite"></span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="field-block">
+      <div class="field-title">
+        <h3>测试数据</h3>
+        <span class="help-icon" data-tooltip="固定 {{ author_tests_per_problem }} 条测试数据。建议覆盖边界、反例和容易误解的情况；每条数据都应有唯一确定的期望输出，数据规模不要大到主要考察运行超时。">?</span>
+      </div>
+      <div class="test-list">
+        {% for row in author_test_rows %}
+        <div class="test-row structured-test-row">
+          <span>a-{{ loop.index0 }}</span>
+          <label class="test-cell kwargs-cell">
+            <span class="inline-field-title">输入
+              <span class="help-icon" data-tooltip="填写函数参数 kwargs 的 JSON 对象，只写参数本身。例如函数签名是 def solve(x: int) -> int: 时，这里填写 {&quot;x&quot;:-1}。">?</span>
+            </span>
+            <input class="json-test-input" name="author_kwargs_{{ row.index }}" value="{{ row.kwargs_json }}" required data-test-kwargs data-signature-field maxlength="{{ limits.test_kwargs }}">
+          </label>
+          <label class="test-cell expected-cell">
+            <span class="inline-field-title">期望输出
+              <span class="help-icon" data-tooltip="填写期望返回值的 JSON 表达。例如数字写 1，字符串写 &quot;abc&quot;，列表写 [1,2]；不允许 expected.any_of。">?</span>
+            </span>
+            <input class="json-test-input" name="author_expected_{{ row.index }}" value="{{ row.expected_json }}" required data-test-expected data-signature-field maxlength="{{ limits.test_expected }}">
+          </label>
+          <span class="json-status" data-test-status aria-live="polite"></span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel validation-actions" id="validation-panel">
+    <div class="heading-title">
+      <h2>保存与校验</h2>
+      <span class="help-icon" data-tooltip="点击“保存题目并校验参考答案”会保存当前题目，并用参考答案执行 {{ public_tests_per_problem }} 条样例数据和 {{ author_tests_per_problem }} 条测试数据；全部通过后才能执行运行。参考答案应尽量在 {{ execution_target_seconds }} 秒内完成，{{ execution_timeout_seconds }} 秒超时仅用于弥补硬件差异。">?</span>
+    </div>
+    <p class="muted">“保存题目并校验参考答案”会执行参考答案和 7 个测试用例。题目无异常且全部通过后，才能执行运行。参考答案和合理解法应尽量压缩在 {{ execution_target_seconds }} 秒内；{{ execution_timeout_seconds }} 秒超时阈值只用于弥补不同硬件差异，不鼓励用超时制造难点。</p>
+    <div class="actions">
+      <button type="submit" formaction="/stage1/problems/{{ problem.problem_id }}/validate">保存题目并校验参考答案</button>
+    </div>
+    <div class="validation-status" id="validation-status" data-valid="{{ 'true' if validation_view.ok else 'false' }}">
+      {% if validation_view.ok %}
+        <span class="status-pill ok">校验通过</span>
+      {% elif validation_view.stale %}
+        <span class="status-pill warn">已失效</span>
+      {% elif validation_view.status == "failed" or validation_view.status == "error" %}
+        <span class="status-pill warn">未通过</span>
+      {% else %}
+        <span class="status-pill warn">未校验</span>
+      {% endif %}
+      {% if validation_view.status == "error" %}
+        <span class="muted">{{ validation_view.message }}</span>
+      {% endif %}
+    </div>
+
+    {% if validation_view.test_results %}
+    <div class="panel-subsection validation-results">
+    <div class="heading-title">
+      <h2>参考答案执行结果</h2>
+        <span class="help-icon" data-tooltip="这里展示“保存题目”时参考答案在全部 7 个测试用例上的执行结果，用于确认题目自身是否可运行、期望值是否一致，以及是否存在不合理高复杂度或超时。">?</span>
+    </div>
+    <table>
+      <thead><tr><th>用例 ID</th><th>集合</th><th>结果</th><th>期望</th><th>实际/错误</th></tr></thead>
+      <tbody>
+      {% for case in validation_view.test_results %}
+        <tr>
+          <td>{{ case.case_id }}</td>
+          <td>{{ '样例数据' if case.test_set == 'public' else '测试数据' }}</td>
+          <td><span class="status-pill {{ 'ok' if case.verdict == 'passed' else 'warn' }}">{{ case.verdict }}</span></td>
+          <td><code>{{ case.expected | tojson }}</code></td>
+          <td>
+            {% if case.traceback %}
+              {% if case.error_type %}<p><strong>{{ case.error_type }}</strong></p>{% endif %}
+              {% if case.error %}<p>{{ case.error }}</p>{% endif %}
+              <pre>{{ case.traceback }}</pre>
+            {% else %}
+              <code>{{ case.actual | tojson }}</code>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="panel model-run-panel" id="model-run-panel">
+    <div>
+      <div class="heading-title">
+        <h2>模型执行运行</h2>
+        <span class="help-icon" data-tooltip="参考答案完成校验且全部测试数据正确后，才能让模型尝试作答。题目内容一旦修改，需要重新保存并校验后再运行模型。">?</span>
+      </div>
+      {% if validation_view.ok %}
+        <p class="muted">当前题目已完成参考答案校验，可以执行模型运行。系统会保存本次模型作答记录，供后续打包提交。</p>
+      {% elif validation_view.status == "failed" or validation_view.status == "error" %}
+        <p class="muted">当前题目的参考答案未通过，暂不能执行模型运行。请先修正题目、测试数据或参考答案。</p>
+      {% else %}
+        <p class="muted">请先保存题目并校验参考答案；全部测试数据正确后，才能执行模型运行。</p>
+      {% endif %}
+    </div>
+
+    <div class="model-run-status" id="model-run-status" data-valid="{{ 'true' if validation_view.ok else 'false' }}">
+      {% if validation_view.ok %}
+        <span class="status-pill ok">可运行</span>
+        <span class="muted">提示词来自已校验通过的当前题目。</span>
+      {% else %}
+        <span class="status-pill warn">不可运行</span>
+        {% if validation_view.status == "failed" or validation_view.status == "error" %}
+          <span class="muted">参考答案执行结果未通过，请先修正后重新校验。</span>
+        {% else %}
+          <span class="muted">题目尚未完成有效校验，或校验已失效。</span>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    <div class="prompt-preview-block">
+      <div class="heading-title">
+        <h3>模型提示词</h3>
+        <span class="help-icon" data-tooltip="这是执行 API 前将发送给模型的完整用户提示词，只读展示；包含题面、函数签名、公开样例和 Python 版本，不包含隐藏测试数据，也不包含课程复杂度要求。">?</span>
+      </div>
+      <pre class="prompt-preview" id="prompt-preview" aria-label="模型提示词">{% for part in official_prompt_parts %}<span class="prompt-part {{ 'problem' if part.kind == 'problem' else 'template' }}">{{ part.text }}</span>{% endfor %}</pre>
+      <p class="muted" id="prompt-state">
+        {% if validation_view.ok %}
+          这是当前已校验题目对应的提示词。
+        {% else %}
+          当前提示词仅为未校验预览，不能执行模型运行。
+        {% endif %}
+      </p>
+    </div>
+
+    <div class="run-control-row">
+      <label class="model-picker">模型
+        <span class="help-icon" data-tooltip="选择本次要测试的模型。模型名称来自设置页中的模型列表。">?</span>
+        <select name="model">
+          {% for model in model_options %}
+            <option value="{{ model }}">{{ model }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="run-params">
+        <span class="status-pill">temperature={{ model_run_temperature }}</span>
+        <span class="status-pill">top_p={{ model_run_top_p }}</span>
+      </div>
+      <div class="actions">
+        <button type="submit" id="run-submit" formaction="/stage1/problems/{{ problem.problem_id }}/run" {% if not validation_view.ok %}disabled{% endif %}>执行模型运行</button>
+      </div>
+    </div>
+
+    <div class="panel-subsection">
+      <div class="heading-title">
+        <h3>模型运行记录</h3>
+        <span class="help-icon" data-tooltip="这里列出当前题目的模型作答记录。只有与当前题目内容一致、记录完整的运行才能选择进提交包；每道题请选择 {{ min_selected_runs_per_problem }}-{{ max_selected_runs_per_problem }} 条。">?</span>
+      </div>
+      {% if run_records_view %}
+      <table>
+        <thead><tr><th>打包</th><th>Run ID</th><th>模型</th><th>结果</th><th>温度</th><th>是否有效</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+        <tbody>
+        {% for row in run_records_view %}
+          {% set run = row.run %}
+          <tr class="{{ 'selected-row' if selected_run and selected_run.run_id == run.run_id else '' }}" data-run-row="{{ run.run_id }}">
+            <td>
+              <input
+                type="checkbox"
+                name="package_run_ids"
+                value="{{ run.run_id }}"
+                data-package-run-checkbox
+                {% if row.selected_for_package %}checked{% endif %}
+                {% if not row.selectable_for_package %}disabled{% endif %}
+                aria-label="选择 {{ run.run_id }} 用于打包"
+              >
+            </td>
+            <td><button class="link-button run-detail-trigger" type="button" data-run-id="{{ run.run_id }}">{{ run.run_id }}</button></td>
+            <td>{{ run.model }}</td>
+            <td><span class="status-pill {{ 'ok' if run.verdict == 'passed' else 'warn' }}">{{ run.verdict }}</span></td>
+            <td>{{ run.temperature | default('未记录') }}</td>
+            <td><span class="status-pill {{ 'ok' if row.matches_current else 'warn' }}" title="{{ row.validity_reason }}">{{ row.validity_status }}</span></td>
+            <td><span class="status-pill {{ 'ok' if row.selected_for_package else ('warn' if not row.selectable_for_package else '') }}">{{ row.package_status }}</span></td>
+            <td>{{ run.created_at_display }}</td>
+            <td>
+              <button
+                class="secondary danger-quiet"
+                type="submit"
+                formaction="/stage1/problems/{{ problem.problem_id }}/runs/{{ run.run_id }}/delete"
+                formmethod="post"
+                formnovalidate
+              >删除</button>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div class="run-selection-actions">
+        <span class="muted" id="run-selection-state">勾选会自动保存；导出包要求每道题选择 {{ min_selected_runs_per_problem }}-{{ max_selected_runs_per_problem }} 条当前有效的运行记录。</span>
+      </div>
+      {% else %}
+      <p class="muted">暂无模型运行记录。</p>
+      {% endif %}
+    </div>
+
+    <div class="panel-subsection selected-run-detail" id="selected-run-detail">
+      <div class="heading-title">
+        <h3>选中模型运行详情</h3>
+        <span class="help-icon" data-tooltip="默认展示最近一次当前有效的运行；如果没有有效记录，则展示最近记录并标识为无效。">?</span>
+      </div>
+      {% if run_records_view %}
+        {% for row in run_records_view %}
+        {% set detail_run = row.run %}
+        <div class="run-detail-card" data-run-detail="{{ detail_run.run_id }}" {% if not (selected_run and selected_run.run_id == detail_run.run_id) %}hidden{% endif %}>
+        <p>
+          <span class="status-pill {{ 'ok' if row.matches_current else 'warn' }}" title="{{ row.validity_reason }}">{{ row.validity_status }}</span>
+          <span class="muted">{{ row.validity_reason }}</span>
+        </p>
+        <table>
+          <tbody>
+            <tr><th>Run ID</th><td>{{ detail_run.run_id }}</td><th>来源</th><td>{{ detail_run.run_origin_display }}</td></tr>
+            <tr><th>Base URL</th><td>{{ detail_run.base_url }}</td><th>模型</th><td>{{ detail_run.model }}</td></tr>
+            <tr><th>结果</th><td>{{ detail_run.verdict }}</td><th>时间</th><td>{{ detail_run.created_at_display }}</td></tr>
+            <tr><th>temperature</th><td>{{ detail_run.temperature | default('未记录') }}</td><th>top_p</th><td>{{ detail_run.top_p | default('未记录') }}</td></tr>
+            <tr><th>提示词版本</th><td>{{ detail_run.prompt_template_id | default('未记录') }}</td><th>有效性</th><td>{{ row.validity_status }}</td></tr>
+          </tbody>
+        </table>
+        <div class="heading-title">
+          <h3>本次运行提示词</h3>
+          <span class="help-icon" data-tooltip="这里是该次模型运行实际使用的完整提示词，方便核对运行记录与当前题目的差异。">?</span>
+        </div>
+        <pre class="prompt-preview">{% if detail_run.prompt_parts %}{% for part in detail_run.prompt_parts %}<span class="prompt-part {{ 'problem' if part.kind == 'problem' else 'template' }}">{{ part.text }}</span>{% endfor %}{% else %}{{ detail_run.prompt | default('旧记录未保存提示词') }}{% endif %}</pre>
+        <div class="panel-subsection">
+          <div class="heading-title">
+            <h3>返回代码</h3>
+            <span class="help-icon" data-tooltip="这里展示从模型回答中提取出的函数代码，用于查看模型这次到底提交了什么答案。">?</span>
+          </div>
+          <pre>{{ detail_run.extracted_code }}</pre>
+        </div>
+        <div class="heading-title">
+          <h3>模型运行测试结果</h3>
+          <span class="help-icon" data-tooltip="逐条展示该次运行在样例数据和测试数据上的期望值、实际值、错误信息和通过状态。">?</span>
+        </div>
+        <table>
+          <thead><tr><th>用例 ID</th><th>集合</th><th>结果</th><th>期望</th><th>实际/错误</th></tr></thead>
+          <tbody>
+          {% for case in detail_run.test_results %}
+            <tr>
+              <td>{{ case.case_id }}</td>
+              <td>{{ '样例数据' if case.test_set == 'public' else '测试数据' }}</td>
+              <td><span class="status-pill {{ 'ok' if case.verdict == 'passed' else 'warn' }}">{{ case.verdict }}</span></td>
+              <td><code>{{ case.expected | tojson }}</code></td>
+              <td>
+                {% if case.traceback %}
+                  {% if case.error_type %}<p><strong>{{ case.error_type }}</strong></p>{% endif %}
+                  {% if case.error %}<p>{{ case.error }}</p>{% endif %}
+                  <pre>{{ case.traceback }}</pre>
+                {% else %}
+                  <code>{{ case.actual | tojson }}</code>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="muted">暂无可展示的模型运行详情。</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel editor-section">
+    <div class="section-heading">
+      <div class="section-heading-copy">
+        <div class="heading-title">
+          <h2>说明</h2>
+          <span class="help-icon" data-tooltip="这里适合写构造思路、来源说明、希望审稿人关注的点或后续修改备注；不会出现在模型看到的题目中。">?</span>
+        </div>
+        <p class="muted">说明不会出现在模型看到的题目中，可写构造思路、来源声明和希望助教关注的点。</p>
+      </div>
+    </div>
+    <div class="field-block">
+      <textarea name="notes" rows="7" maxlength="{{ limits.notes }}">{{ problem.notes }}</textarea>
+    </div>
+  </section>
+</form>
+
+<script>
+  const editorForm = document.querySelector("#problem-editor");
+  const runSubmit = document.querySelector("#run-submit");
+  const validationStatus = document.querySelector("#validation-status");
+  const modelRunStatus = document.querySelector("#model-run-status");
+  const promptPreview = document.querySelector("#prompt-preview");
+  const promptState = document.querySelector("#prompt-state");
+  const selectedRunDetail = document.querySelector("#selected-run-detail");
+  const runSelectionState = document.querySelector("#run-selection-state");
+  const packageRunCheckboxes = Array.from(document.querySelectorAll("[data-package-run-checkbox]"));
+  const runDetailTriggers = Array.from(document.querySelectorAll("[data-run-id]"));
+  const runDetailCards = Array.from(document.querySelectorAll("[data-run-detail]"));
+  const runRows = Array.from(document.querySelectorAll("[data-run-row]"));
+  const executionPythonVersion = {{ execution_python_version | tojson }};
+  const executionPythonImage = {{ execution_python_image | tojson }};
+
+  const setProblemProgress = (completedSteps, message) => {
+    const panel = document.querySelector("[data-status-progress]");
+    if (!panel) {
+      return;
+    }
+    const track = panel.querySelector("[data-progress-track]");
+    const messageNode = panel.querySelector("[data-progress-message]");
+    const totalSteps = Number(track?.dataset.totalSteps || track?.getAttribute("aria-valuemax") || 0);
+    const safeCompleted = Math.max(0, Math.min(completedSteps, totalSteps));
+    if (track) {
+      track.setAttribute("aria-valuenow", String(safeCompleted));
+    }
+    panel.querySelectorAll("[data-progress-cell]").forEach((cell, index) => {
+      cell.classList.toggle("complete", index < safeCompleted);
+    });
+    if (messageNode) {
+      messageNode.textContent = message;
+    }
+  };
+
+  const compactJsonText = (value, fallback) => {
+    try {
+      return JSON.stringify(JSON.parse(value));
+    } catch (error) {
+      return fallback;
+    }
+  };
+
+  const publicExamples = () => {
+    const lines = [];
+    for (let index = 0; index < 2; index += 1) {
+      const kwargsText = document.querySelector(`[name="public_kwargs_${index}"]`)?.value || "{}";
+      const expectedText = document.querySelector(`[name="public_expected_${index}"]`)?.value || "null";
+      lines.push(`输入：${compactJsonText(kwargsText, kwargsText)}；输出：${compactJsonText(expectedText, expectedText)}。`);
+    }
+    return lines.join("\n");
+  };
+
+  const promptParts = (statement, signature, examples) => [
+    { kind: "template", text: `请根据题目实现下面的 Python ${executionPythonVersion} 函数。\n\n题目：\n` },
+    { kind: "problem", text: statement.trim() },
+    { kind: "template", text: "\n\n公开示例：\n" },
+    { kind: "problem", text: examples },
+    { kind: "template", text: "\n\n函数签名：\n" },
+    { kind: "problem", text: signature.trim() },
+    { kind: "template", text: `\n\n运行环境：\nPython ${executionPythonVersion}（执行器镜像：${executionPythonImage}）。\n` },
+    { kind: "template", text: "\n\n输出要求：\n只输出完整函数定义，第一行必须是上述函数签名；不要输出 Markdown、解释或测试代码。\n" },
+  ];
+
+  const renderPromptParts = (parts) => {
+    const currentPromptPreview = document.querySelector("#prompt-preview");
+    if (!currentPromptPreview) {
+      return;
+    }
+    currentPromptPreview.replaceChildren();
+    parts.forEach((part) => {
+      const span = document.createElement("span");
+      span.className = `prompt-part ${part.kind === "problem" ? "problem" : "template"}`;
+      span.textContent = part.text;
+      currentPromptPreview.appendChild(span);
+    });
+  };
+
+  const updatePromptPreview = () => {
+    const statement = document.querySelector('[name="statement"]')?.value || "";
+    const signature = document.querySelector('[name="signature"]')?.value || "";
+    renderPromptParts(promptParts(statement, signature, publicExamples()));
+  };
+
+  const markValidationStale = () => {
+    updatePromptPreview();
+    const currentValidationStatus = document.querySelector("#validation-status");
+    const currentModelRunStatus = document.querySelector("#model-run-status");
+    const currentPromptState = document.querySelector("#prompt-state");
+    const currentSelectedRunDetail = document.querySelector("#selected-run-detail");
+    const currentRunSubmit = document.querySelector("#run-submit");
+    if (currentValidationStatus) {
+      currentValidationStatus.dataset.valid = "false";
+      currentValidationStatus.innerHTML = '<span class="status-pill warn">存在未保存的内容</span>';
+    }
+    if (currentModelRunStatus) {
+      currentModelRunStatus.dataset.valid = "false";
+      currentModelRunStatus.innerHTML = '<span class="status-pill warn">已失效</span><span class="muted">题目已变更，模型提示词已更新，已有运行记录可能不再有效。</span>';
+    }
+    if (currentPromptState) {
+      currentPromptState.textContent = "题目已变更，提示词预览已更新但尚未校验，不能执行模型运行。";
+      currentPromptState.className = "error-text";
+    }
+    if (currentSelectedRunDetail) {
+      currentSelectedRunDetail.classList.add("stale-detail");
+    }
+    if (currentRunSubmit) {
+      currentRunSubmit.disabled = true;
+    }
+    setProblemProgress(1, "题目已修改，请重新保存并校验参考答案。");
+    document.querySelectorAll("[data-package-run-checkbox]").forEach((checkbox) => {
+      checkbox.checked = false;
+      checkbox.disabled = true;
+    });
+    const currentRunSelectionState = document.querySelector("#run-selection-state");
+    if (currentRunSelectionState) {
+      currentRunSelectionState.textContent = "题目已变更，当前运行记录选择已失效；请重新保存并校验题目。";
+      currentRunSelectionState.className = "error-text";
+    }
+  };
+
+  const updateRunSelectionState = () => {
+    const currentRunSelectionState = document.querySelector("#run-selection-state");
+    if (!currentRunSelectionState) {
+      return;
+    }
+    const currentPackageRunCheckboxes = Array.from(document.querySelectorAll("[data-package-run-checkbox]"));
+    const selectedCount = currentPackageRunCheckboxes.filter((checkbox) => checkbox.checked && !checkbox.disabled).length;
+    const minRuns = {{ min_selected_runs_per_problem }};
+    const maxRuns = {{ max_selected_runs_per_problem }};
+    currentRunSelectionState.textContent = `当前选择 ${selectedCount} 条；导出包要求每道题选择 ${minRuns}-${maxRuns} 条当前有效的记录。`;
+    currentRunSelectionState.className = selectedCount >= minRuns && selectedCount <= maxRuns ? "ok-text" : "error-text";
+    const validationOk = document.querySelector("#validation-status")?.dataset.valid === "true";
+    if (validationOk) {
+      if (selectedCount >= minRuns && selectedCount <= maxRuns) {
+        setProblemProgress(3, "题目已满足当前 Stage 提交要求。");
+      } else if (selectedCount === 0) {
+        setProblemProgress(2, "请选择至少 1 条有效运行记录。");
+      } else {
+        setProblemProgress(2, `最多选择 ${maxRuns} 条有效运行记录。`);
+      }
+    }
+  };
+
+  updateRunSelectionState();
+
+  runDetailTriggers.forEach((trigger) => {
+    trigger.addEventListener("click", () => {
+      const runId = trigger.dataset.runId;
+      runRows.forEach((row) => {
+        row.classList.toggle("selected-row", row.dataset.runRow === runId);
+      });
+      runDetailCards.forEach((card) => {
+        card.hidden = card.dataset.runDetail !== runId;
+      });
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    const trigger = event.target.closest("[data-run-id]");
+    if (!trigger) {
+      return;
+    }
+    const runId = trigger.dataset.runId;
+    document.querySelectorAll("[data-run-row]").forEach((row) => {
+      row.classList.toggle("selected-row", row.dataset.runRow === runId);
+    });
+    document.querySelectorAll("[data-run-detail]").forEach((card) => {
+      card.hidden = card.dataset.runDetail !== runId;
+    });
+  });
+
+  document.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-package-run-checkbox]");
+    if (!checkbox) {
+      return;
+    }
+    const selectedCount = Array.from(document.querySelectorAll("[data-package-run-checkbox]"))
+      .filter((item) => item.checked && !item.disabled).length;
+    if (selectedCount > {{ max_selected_runs_per_problem }}) {
+      checkbox.checked = false;
+    }
+    updateRunSelectionState();
+    saveRunPackageSelection();
+  });
+
+  const saveRunPackageSelection = async () => {
+    const currentRunSelectionState = document.querySelector("#run-selection-state");
+    const scrollY = window.scrollY;
+    const formData = new FormData(editorForm);
+    formData.set("_response_format", "json");
+    if (currentRunSelectionState) {
+      currentRunSelectionState.textContent = "正在保存运行记录选择...";
+      currentRunSelectionState.className = "muted";
+    }
+    try {
+      const response = await fetch("/stage1/problems/{{ problem.problem_id }}/runs/package-selection", {
+        method: "POST",
+        body: formData,
+        headers: { "X-Requested-With": "fetch", "Accept": "application/json" },
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        if (currentRunSelectionState) {
+          currentRunSelectionState.textContent = payload.error || "保存失败";
+          currentRunSelectionState.className = "error-text";
+        }
+        return;
+      }
+      if (currentRunSelectionState) {
+        const minRuns = {{ min_selected_runs_per_problem }};
+        const maxRuns = {{ max_selected_runs_per_problem }};
+        currentRunSelectionState.textContent = `当前选择 ${payload.selected} 条；导出包要求每道题选择 ${minRuns}-${maxRuns} 条当前有效的记录。`;
+        currentRunSelectionState.className = payload.selected >= minRuns && payload.selected <= maxRuns ? "ok-text" : "error-text";
+      }
+      updateRunSelectionState();
+    } catch (error) {
+      if (currentRunSelectionState) {
+        currentRunSelectionState.textContent = "保存失败，请稍后重试。";
+        currentRunSelectionState.className = "error-text";
+      }
+    } finally {
+      window.scrollTo(window.scrollX, scrollY);
+    }
+  };
+
+  const replaceFromDocument = (nextDocument, selector) => {
+    const current = document.querySelector(selector);
+    const next = nextDocument.querySelector(selector);
+    if (current && next) {
+      current.replaceWith(next);
+    }
+  };
+
+  const submitPanelUpdate = async (event) => {
+    const submitter = event.submitter;
+    const action = submitter?.formAction || editorForm.action;
+    const actionUrl = new URL(action, window.location.href);
+    const path = actionUrl.pathname;
+    const isPanelAction = (
+      path.endsWith("/validate")
+      || path.endsWith("/run")
+      || path.endsWith("/runs/package-selection")
+      || path.endsWith("/delete")
+    );
+    if (!isPanelAction) {
+      return;
+    }
+    event.preventDefault();
+    if (path.endsWith("/delete") && !confirm("确定要删除这条模型运行记录吗？")) {
+      return;
+    }
+    const scrollY = window.scrollY;
+    const formData = new FormData(editorForm);
+    if (submitter) {
+      submitter.disabled = true;
+    }
+    try {
+      const response = await fetch(action, {
+        method: "POST",
+        body: formData,
+        headers: { "X-Requested-With": "fetch" },
+      });
+      const html = await response.text();
+      const nextDocument = new DOMParser().parseFromString(html, "text/html");
+      replaceFromDocument(nextDocument, "#notice-region");
+      replaceFromDocument(nextDocument, "#problem-summary-panel");
+      replaceFromDocument(nextDocument, "#validation-panel");
+      replaceFromDocument(nextDocument, "#model-run-panel");
+      updateRunSelectionState();
+      window.scrollTo(window.scrollX, scrollY);
+    } catch (error) {
+      const noticeRegion = document.querySelector("#notice-region");
+      if (noticeRegion) {
+        noticeRegion.innerHTML = '<div class="notice error">请求失败，请稍后重试。</div>';
+      }
+    } finally {
+      if (submitter && document.contains(submitter)) {
+        submitter.disabled = false;
+      }
+    }
+  };
+
+  if (editorForm) {
+    editorForm.addEventListener("submit", submitPanelUpdate);
+  }
+
+  const setInputState = (input, ok) => {
+    input.classList.toggle("invalid", !ok);
+    input.classList.toggle("valid", ok);
+  };
+
+  const parseJsonField = (value, label) => {
+    if (!value.trim()) {
+      return { ok: false, error: `${label}不能为空` };
+    }
+    try {
+      return { ok: true, value: JSON.parse(value) };
+    } catch (error) {
+      return { ok: false, error: `${label} JSON 格式错误` };
+    }
+  };
+
+  const validateStructuredRow = (row) => {
+    const kwargsInput = row.querySelector("[data-test-kwargs]");
+    const expectedInput = row.querySelector("[data-test-expected]");
+    const status = row.querySelector("[data-test-status]");
+    const errors = [];
+
+    const kwargs = parseJsonField(kwargsInput.value, "输入");
+    if (!kwargs.ok) {
+      errors.push(kwargs.error);
+    } else if (!kwargs.value || Array.isArray(kwargs.value) || typeof kwargs.value !== "object") {
+      errors.push('输入必须是 JSON 对象，例如 {"x":-1}');
+    }
+
+    const expected = parseJsonField(expectedInput.value, "期望输出");
+    if (!expected.ok) {
+      errors.push(expected.error);
+    } else if (
+      expected.value &&
+      !Array.isArray(expected.value) &&
+      typeof expected.value === "object" &&
+      Object.prototype.hasOwnProperty.call(expected.value, "any_of")
+    ) {
+      errors.push("期望输出不允许 any_of");
+    }
+
+    const ok = errors.length === 0;
+    setInputState(kwargsInput, ok || !errors.some((item) => item.startsWith("输入")));
+    setInputState(expectedInput, ok || !errors.some((item) => item.startsWith("期望输出")));
+    status.textContent = ok ? "格式正确" : errors.join("；");
+    status.className = ok ? "json-status ok-text" : "json-status error-text";
+  };
+
+  document.querySelectorAll(".structured-test-row").forEach((row) => {
+    validateStructuredRow(row);
+    row.querySelectorAll("[data-test-kwargs], [data-test-expected]").forEach((input) => {
+      input.addEventListener("input", () => {
+        validateStructuredRow(row);
+        markValidationStale();
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-signature-field]:not([data-test-kwargs]):not([data-test-expected])").forEach((input) => {
+    input.addEventListener("input", markValidationStale);
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeSetArena 助教端 {{ display_version }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong>CodeSetArena</strong>
+      <span>助教端</span>
+      <span class="version-badge">{{ display_version }}</span>
+    </div>
+    <nav>
+      <a class="{{ 'active' if active == 'settings' else '' }}" href="/settings">设置</a>
+      <a class="{{ 'active' if active == 'stage1' else '' }}" href="/stage1">Stage 1 收包验证</a>
+      <a class="{{ 'active' if active == 'stage2_assign' else '' }}" href="/stage2/assign">Stage 2 审稿分配</a>
+      <a class="{{ 'active' if active == 'stage2_reviews' else '' }}" href="/stage2/reviews">Stage 2 收审稿包</a>
+      <a class="{{ 'active' if active == 'stage3_feedback' else '' }}" href="/stage3/feedback">Stage 3 发修订反馈</a>
+      <a class="{{ 'active' if active == 'stage3_revisions' else '' }}" href="/stage3/revisions">Stage 3 收修订包</a>
+      <a class="{{ 'active' if active == 'eval' else '' }}" href="/eval">正式评测</a>
+      <a class="{{ 'active' if active == 'stats' else '' }}" href="/stats">课程统计</a>
+      <a class="{{ 'active' if active == 'audit' else '' }}" href="/audit">审计记录</a>
+    </nav>
+  </header>
+  <main>
+    {% if notice %}
+      <div class="notice ok">{{ notice }}{% if download %}<a href="/downloads/{{ download }}" download>下载/另存为</a>{% endif %}</div>
+    {% endif %}
+    {% if error %}
+      <div class="notice error">{{ error }}</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

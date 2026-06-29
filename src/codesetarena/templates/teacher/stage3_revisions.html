@@ -1,0 +1,47 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>Stage 3 收修订包</h1>
+    <p>上传并验证学生修订提交包。</p>
+  </div>
+  <form method="post" action="/stage3/revisions/reset" onsubmit="return confirm('确定要重置 Stage 3 收修订包吗？这会清空已导入修订包，并清空依赖它的正式评测数据。');">
+    <button type="submit" class="danger-quiet">重置收修订包</button>
+  </form>
+</section>
+<section class="panel">
+  <div class="heading-title">
+    <h2>上传修订包</h2>
+    <span class="help-icon" data-tooltip="选择学生提交的 Stage 3 修订包，文件名应为 {学号}-student-stage3-revision.tar.gz；系统会验证修订题包、作者回应、review rating 和新自测记录。">?</span>
+  </div>
+  <p>文件名：{学号}-student-stage3-revision.tar.gz</p>
+  <form method="post" action="/stage3/revisions/upload" enctype="multipart/form-data" class="inline-form">
+    <input type="file" name="file" accept=".tar.gz,application/gzip" required>
+    <button type="submit">上传修订包</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>已收修订包</h2>
+  <table>
+    <tr><th>学号</th><th>题目数</th><th>回应数</th><th>包名</th><th>操作</th></tr>
+    {% for student_number, row in state.revisions.items() %}
+    <tr>
+      <td>{{ student_number }}</td>
+      <td>{{ row.problems | length }}</td>
+      <td>{{ row.responses | length }}</td>
+      <td>{{ row.archive }}</td>
+      <td>
+        <div class="inline-actions">
+          <a class="button secondary" href="/stage3/revisions/{{ student_number }}">详情</a>
+          <form method="post" action="/stage3/revisions/{{ student_number }}/delete" onsubmit="return confirm('确定删除 {{ student_number }} 的 Stage 3 修订包吗？这会清空依赖它的正式评测和统计结果。');">
+            <button type="submit" class="danger-quiet">删除</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5">暂无修订包</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

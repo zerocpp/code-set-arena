@@ -1,0 +1,29 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>Stage 3 发修订反馈</h1>
+    <p>按作者汇总审稿意见并生成修订反馈包。</p>
+  </div>
+  <form method="post" action="/stage3/feedback/reset" onsubmit="return confirm('确定要重置 Stage 3 发修订反馈吗？这会清空已生成反馈包，并清空依赖它的修订和评测数据。');">
+    <button type="submit" class="danger-quiet">重置反馈</button>
+  </form>
+</section>
+<section class="panel">
+  <form method="post" action="/stage3/feedback">
+    <button type="submit">生成修订反馈包</button>
+  </form>
+  <p>批量包名：teacher-stage3-review-feedbacks.tar.gz</p>
+</section>
+<section class="panel">
+  <h2>已生成反馈</h2>
+  <table>
+    <tr><th>学号</th><th>review 数</th><th>包名</th></tr>
+    {% for student_number, row in state.feedback.items() %}
+    <tr><td>{{ student_number }}</td><td>{{ row.reviews | length }}</td><td>{{ row.archive }}</td></tr>
+    {% else %}
+    <tr><td colspan="3">暂无反馈包</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

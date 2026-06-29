@@ -1,0 +1,69 @@
+"""Shared constants for CodeSetArena v7."""
+
+from __future__ import annotations
+
+APP_NAME = "CodeSetArena"
+PROJECT_NAME = "code-set-arena"
+DISPLAY_VERSION = "v7.1.3"
+VERSION_TAG = DISPLAY_VERSION
+
+STUDENT_IMAGE = f"codesetarena-student:{VERSION_TAG}"
+TEACHER_IMAGE = f"codesetarena-teacher:{VERSION_TAG}"
+RUNTIME_IMAGE = f"codesetarena-runtime:{VERSION_TAG}"
+
+ROLE_STUDENT = "student"
+ROLE_TEACHER = "teacher"
+
+STAGE1 = "stage1"
+STAGE2 = "stage2"
+STAGE3 = "stage3"
+STAGE4 = "stage4"
+
+KIND_PROBLEMS = "problems"
+KIND_REVIEWS = "reviews"
+KIND_REVISION = "revision"
+KIND_REVIEW_ASSIGNMENT = "review-assignment"
+KIND_REVIEW_FEEDBACK = "review-feedback"
+KIND_OFFICIAL_EVAL = "official-eval"
+KIND_COURSE_STATS = "course-stats"
+
+RUN_ORIGIN_STUDENT_SELF_TEST = "student_self_test"
+RUN_ORIGIN_TA_OFFICIAL_EVAL = "ta_official_eval"
+
+STUDENT_DATA_ENV = "CODESETARENA_STUDENT_DATA_DIR"
+TEACHER_DATA_ENV = "CODESETARENA_TEACHER_DATA_DIR"
+
+DEFAULT_STUDENT_DATA_DIR = ".codesetarena-student"
+DEFAULT_TEACHER_DATA_DIR = ".codesetarena-teacher"
+
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro"]
+
+EXECUTION_PYTHON_VERSION = "3.12"
+EXECUTION_PYTHON_IMAGE = "python:3.12-slim-bookworm"
+EXECUTION_TARGET_SECONDS = 1
+EXECUTION_TIMEOUT_SECONDS = 10
+
+PROBLEMS_PER_STUDENT = 5
+PUBLIC_TESTS_PER_PROBLEM = 2
+AUTHOR_TESTS_PER_PROBLEM = 5
+MIN_SELECTED_RUNS_PER_PROBLEM = 1
+MAX_SELECTED_RUNS_PER_PROBLEM = 5
+DEFAULT_REVIEWS_PER_PROBLEM = 2
+DEFAULT_RANDOM_SEED = 42
+AI_REVIEWER_STUDENT_NUMBER = "AI"
+AI_REVIEWER_NAME = "AI"
+AI_REVIEWER_CLASS_ID = "AI"
+
+PROMPT_TEMPLATE_ID = "official_func_zh_v6"
+MODEL_RUN_TEMPERATURE = 0.0
+MODEL_RUN_TOP_P = 1.0
+PASS_K_EVAL_TEMPERATURE = 0.8
+
+AUTHOR_REVIEW_RATING_OPTIONS = [
+    ("5", "5分：对本题改进非常关键"),
+    ("4", "4分：对本题改进很有帮助"),
+    ("3", "3分：对本题改进有一定帮助"),
+    ("2", "2分：帮助有限"),
+    ("1", "1分：基本无帮助"),
+]

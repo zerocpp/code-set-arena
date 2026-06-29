@@ -1,0 +1,22 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>审计记录</h1>
+    <p>记录助教端关键操作。</p>
+  </div>
+  <form method="post" action="/audit/reset" onsubmit="return confirm('确定要重置审计记录吗？这会清空当前助教端审计日志。');">
+    <button type="submit" class="danger-quiet">重置审计记录</button>
+  </form>
+</section>
+<section class="panel">
+  <table>
+    <tr><th>事件</th><th>详情</th></tr>
+    {% for row in state.audit %}
+    <tr><td>{{ row.event }}</td><td>{{ row.detail }}</td></tr>
+    {% else %}
+    <tr><td colspan="2">暂无审计记录</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>课程统计</h1>
+    <p>查看课程闭环进度并导出 JSON。</p>
+  </div>
+  <form method="post" action="/stats/reset" onsubmit="return confirm('确定要重置课程统计导出吗？这只会清空已导出的统计 JSON，不会删除课程数据。');">
+    <button type="submit" class="danger-quiet">重置统计导出</button>
+  </form>
+</section>
+<section class="panel">
+  <form method="post" action="/stats/export">
+    <button type="submit">导出课程统计 JSON</button>
+  </form>
+  <p>文件名：teacher-stage4-course-stats.json</p>
+</section>
+<section class="panel">
+  <pre>{{ stats | tojson(indent=2) }}</pre>
+</section>
+{% endblock %}

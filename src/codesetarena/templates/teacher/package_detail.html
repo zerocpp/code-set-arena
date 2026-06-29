@@ -1,0 +1,159 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>{{ detail.title }}</h1>
+    <p>{{ detail.student_number }} {{ detail.student.name or '' }}。这里展示助教端可读详情，页面底部保留原始 JSON。</p>
+  </div>
+  <a class="button secondary" href="{{ detail.back_url }}">返回列表</a>
+</section>
+
+<section class="panel">
+  <h2>包摘要</h2>
+  <table>
+    <tr><th>学号</th><td>{{ detail.student_number }}</td></tr>
+    <tr><th>姓名</th><td>{{ detail.student.name or '' }}</td></tr>
+    <tr><th>班级</th><td>{{ detail.student.class_id or '' }}</td></tr>
+    <tr><th>包名</th><td>{{ detail.archive }}</td></tr>
+    <tr><th>收到时间</th><td>{{ detail.received_at }}</td></tr>
+    {% for label, value in detail.counts %}
+    <tr><th>{{ label }}</th><td>{{ value }}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+{% if detail.kind == "stage1" %}
+<section class="panel">
+  <h2>原始题目</h2>
+  {% for problem in detail.problems %}
+  <div class="panel-subsection review-feedback-card">
+    <h3>{{ problem.problem_id }} · {{ problem.title or problem.problem_id }}</h3>
+    <h4>题面</h4>
+    <pre>{{ problem.statement }}</pre>
+    <h4>函数签名</h4>
+    <pre>{{ problem.signature }}</pre>
+    <h4>参考答案</h4>
+    <pre>{{ problem.reference_solution }}</pre>
+    <h4>样例数据</h4>
+    <table>
+      <tr><th>#</th><th>输入</th><th>输出</th></tr>
+      {% for test in problem.public_tests %}
+      {% set row = test | test_io %}
+      <tr><td>p-{{ loop.index0 }}</td><td><code>{{ row.input }}</code></td><td><code>{{ row.output }}</code></td></tr>
+      {% endfor %}
+    </table>
+    <h4>测试数据</h4>
+    <table>
+      <tr><th>#</th><th>输入</th><th>输出</th></tr>
+      {% for test in problem.author_tests %}
+      {% set row = test | test_io %}
+      <tr><td>a-{{ loop.index0 }}</td><td><code>{{ row.input }}</code></td><td><code>{{ row.output }}</code></td></tr>
+      {% endfor %}
+    </table>
+    {% if problem.notes %}<h4>说明</h4><pre>{{ problem.notes }}</pre>{% endif %}
+    <h4>自测运行记录</h4>
+    {% for run in problem.run_records %}
+    <div class="panel-subsection review-run-card">
+      <p><strong>Run ID：</strong><code>{{ run.run_id }}</code>；<strong>模型：</strong>{{ run.model }}；<strong>结果：</strong>{{ run.verdict }}</p>
+      <h5>返回代码</h5>
+      <pre>{{ run.extracted_code or run.raw_response or '未记录' }}</pre>
+      {% if run.test_results %}
+      <table>
+        <tr><th>用例 ID</th><th>集合</th><th>结果</th><th>期望</th><th>实际/错误</th></tr>
+        {% for case in run.test_results %}
+        <tr>
+          <td>{{ case.case_id }}</td>
+          <td>{{ '样例数据' if case.test_set == 'public' else ('测试数据' if case.test_set == 'author' else case.test_set) }}</td>
+          <td>{{ case.verdict }}</td>
+          <td><code>{{ case.expected | tojson }}</code></td>
+          <td>{% if case.error %}{{ case.error }}{% else %}<code>{{ case.actual | tojson }}</code>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="muted">暂无自测运行记录。</p>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">暂无题目。</p>
+  {% endfor %}
+</section>
+{% elif detail.kind == "stage2_reviews" %}
+<section class="panel">
+  <h2>审稿详情</h2>
+  {% for item in detail.reviews %}
+  {% set review = item.review %}
+  <div class="panel-subsection review-feedback-card">
+    <h3>匿名题目 <code>{{ item.anonymous_problem_id }}</code>（真实题目 ID：<code>{{ item.real_problem_id }}</code>）</h3>
+    <p>匿名作者：<code>{{ item.anonymous_author_id }}</code>（真实学号：<code>{{ item.real_author_id }}</code>）</p>
+    <p><strong>结论：</strong>{{ review.conclusion or '未记录' }}；<strong>题目质量评分：</strong>{{ review.quality_score or '未评分' }}</p>
+    <h4>建议</h4>
+    <pre>{{ review.explanation or review.summary or review.suggestion or '未填写' }}</pre>
+  </div>
+  {% else %}
+  <p class="muted">暂无审稿内容。</p>
+  {% endfor %}
+</section>
+{% elif detail.kind == "stage3_revisions" %}
+<section class="panel">
+  <h2>修订题目</h2>
+  {% for problem in detail.problems %}
+  <div class="panel-subsection review-feedback-card">
+    <h3>{{ problem.problem_id }} · {{ problem.title or problem.problem_id }}</h3>
+    <h4>题面</h4>
+    <pre>{{ problem.statement }}</pre>
+    <h4>函数签名</h4>
+    <pre>{{ problem.signature }}</pre>
+    <h4>参考答案</h4>
+    <pre>{{ problem.reference_solution }}</pre>
+    <h4>样例数据</h4>
+    <table>
+      <tr><th>#</th><th>输入</th><th>输出</th></tr>
+      {% for test in problem.public_tests %}
+      {% set row = test | test_io %}
+      <tr><td>p-{{ loop.index0 }}</td><td><code>{{ row.input }}</code></td><td><code>{{ row.output }}</code></td></tr>
+      {% endfor %}
+    </table>
+    <h4>测试数据</h4>
+    <table>
+      <tr><th>#</th><th>输入</th><th>输出</th></tr>
+      {% for test in problem.author_tests %}
+      {% set row = test | test_io %}
+      <tr><td>a-{{ loop.index0 }}</td><td><code>{{ row.input }}</code></td><td><code>{{ row.output }}</code></td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">暂无修订题目。</p>
+  {% endfor %}
+</section>
+<section class="panel">
+  <h2>审稿回应</h2>
+  {% for item in detail.responses %}
+  {% set response = item.response %}
+  {% set review = item.review %}
+  <div class="panel-subsection review-feedback-card">
+    <h3>回应建议 {{ loop.index }} · {{ response.review_id }}</h3>
+    {% if review %}
+    <p>匿名审稿人：<code>{{ review.reviewer_anonymous_user_id }}</code>（真实学号：<code>{{ review.reviewer_student_number }}</code>）</p>
+    <p>匿名题目：<code>{{ review.anonymous_problem_id or review.anonymous_id }}</code>（真实题目 ID：<code>{{ review.problem_id }}</code>）</p>
+    {% set review_body = review.review or {} %}
+    <p><strong>原审稿结论：</strong>{{ review_body.conclusion or '未记录' }}</p>
+    {% endif %}
+    <p><strong>作者评分：</strong>{{ response.rating or '未评分' }}</p>
+    <h4>回应建议</h4>
+    <pre>{{ response.response or '未填写' }}</pre>
+  </div>
+  {% else %}
+  <p class="muted">暂无作者回应。</p>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>原始 JSON</h2>
+  <pre class="code-block">{{ detail.payload | tojson(indent=2) }}</pre>
+</section>
+{% endblock %}

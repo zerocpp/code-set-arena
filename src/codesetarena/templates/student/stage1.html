@@ -1,0 +1,178 @@
+{% extends "student/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>Stage 1 原始题目</h1>
+    <p>请选择 {{ problems_per_student }} 道有效题目。有效题目需要参考答案校验通过，并已在详情页选择 {{ min_selected_runs_per_problem }}-{{ max_selected_runs_per_problem }} 条有效运行记录。导入包会自动同步这里的信息；所有导出包都会带上学号、姓名和班级。当前 Stage 所需的所有说明和注意事项都在这里给出。</p>
+  </div>
+</section>
+
+<section class="panel stage-actions-panel">
+  <div class="heading-title">
+    <h2>清空当前 Stage 与导入包</h2>
+    <span class="help-icon" data-tooltip="清空当前 Stage 会删除本端已创建的原始题目、运行记录和 Stage 1 导出文件。导入包会替换当前题目列表并同步学生信息。">?</span>
+  </div>
+  <div class="actions">
+    <form method="post" action="/stage1/reset" onsubmit="return confirm('确定要清空 Stage 1 吗？这会清空当前所有原始题目、运行记录和已导出的 Stage 1 包。');">
+      <button type="submit" class="danger-quiet">清空当前 Stage</button>
+    </form>
+    <form method="post" action="/stage1/import" enctype="multipart/form-data" class="inline-form">
+      <input type="file" name="file" accept=".tar.gz,application/gzip" required>
+      <button type="submit">导入 Stage 1 原始题目包</button>
+    </form>
+  </div>
+  <p class="muted">可导入自己此前导出的 {学号}-student-stage1-problems.tar.gz。导入后会同步学生信息并替换当前题目列表。</p>
+</section>
+
+{% include "student/student_info.html" %}
+
+<section class="panel" id="stage1-problem-list-panel">
+  <div class="section-toolbar">
+    <div>
+      <h2>题目列表</h2>
+      <p class="muted">勾选会自动保存。导出前必须刚好选择 {{ problems_per_student }} 道题目。</p>
+    </div>
+    <form method="post" action="/stage1/problems"><button type="submit">新建题目</button></form>
+  </div>
+  <form id="stage1-problem-selection" method="post" action="/stage1/problems/package-selection" data-stage1-selection-form></form>
+  <table>
+    <thead>
+      <tr><th>选择打包</th><th>ID</th><th>标题</th><th>已选运行</th><th>题目状态</th><th>详情</th><th>删除</th></tr>
+    </thead>
+    <tbody>
+    {% for row in stage1_rows %}
+      {% set problem = row.problem %}
+      <tr data-problem-row="{{ problem.problem_id }}">
+        <td>
+          <input
+            type="checkbox"
+            form="stage1-problem-selection"
+            name="package_problem_ids"
+            value="{{ problem.problem_id }}"
+            data-stage1-package-checkbox
+            {% if row.selected_for_package and row.ready_for_package %}checked{% endif %}
+            {% if not row.ready_for_package %}disabled{% endif %}
+            aria-label="选择 {{ problem.problem_id }} 用于打包"
+          >
+        </td>
+        <td><a href="/stage1/problems/{{ problem.problem_id }}">{{ problem.problem_id }}</a></td>
+        <td>{{ problem.title }}</td>
+        <td>{{ row.selected_run_count }} / {{ row.legal_run_count }}</td>
+        <td><span class="status-pill {{ row.package_status_class }}">{{ row.package_status }}</span></td>
+        <td><a class="button secondary" href="/stage1/problems/{{ problem.problem_id }}">打开</a></td>
+        <td>
+          <form method="post" action="/stage1/problems/{{ problem.problem_id }}/delete" data-stage1-delete-form>
+            <button class="secondary danger-quiet" type="submit">删除</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">暂无题目，点击“新建题目”开始。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="form-inline-message" id="stage1-selection-state" aria-live="polite">
+    当前选择 {{ selected_stage1_problem_count }} / {{ problems_per_student }} 道题目。
+  </p>
+</section>
+
+<section class="panel package">
+  <div class="heading-title">
+    <h2>导出</h2>
+    <span class="help-icon" data-tooltip="导出的包会包含学生信息、已选择的 {{ problems_per_student }} 道有效题目，以及每道题当前选中的有效模型运行记录。">?</span>
+  </div>
+  <p>文件名：{学号}-student-stage1-problems.tar.gz。只会导出上方已选择的 {{ problems_per_student }} 道有效题目。</p>
+  <form method="post" action="/stage1/package"><button type="submit">导出 Stage 1 原始题目包</button></form>
+</section>
+
+<script>
+  (() => {
+    const maxProblems = {{ problems_per_student }};
+
+    const setSelectionState = (text, className = "form-inline-message") => {
+      const selectionState = document.querySelector("#stage1-selection-state");
+      if (selectionState) {
+        selectionState.textContent = text;
+        selectionState.className = className;
+      }
+    };
+
+    const currentCheckboxes = () => Array.from(document.querySelectorAll("[data-stage1-package-checkbox]"));
+    const currentSelectedCount = () => currentCheckboxes().filter((checkbox) => checkbox.checked && !checkbox.disabled).length;
+
+    const saveSelection = async (changedCheckbox) => {
+      const selectionForm = document.querySelector("[data-stage1-selection-form]");
+      if (!selectionForm) {
+        return;
+      }
+      const count = currentSelectedCount();
+      if (count > maxProblems) {
+        changedCheckbox.checked = false;
+        setSelectionState(`最多只能选择 ${maxProblems} 道题目。`, "form-inline-message error-text");
+        return;
+      }
+      setSelectionState("正在保存选择...");
+      try {
+        const body = new FormData(selectionForm);
+        body.set("_response_format", "json");
+        const response = await fetch(selectionForm.action, {
+          method: "POST",
+          body,
+          headers: { "X-Requested-With": "fetch", "Accept": "application/json" },
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          changedCheckbox.checked = !changedCheckbox.checked;
+          setSelectionState(payload.error || "保存失败", "form-inline-message error-text");
+          return;
+        }
+        setSelectionState(`当前选择 ${payload.selected} / ${maxProblems} 道题目。`, payload.selected === maxProblems ? "form-inline-message ok-text" : "form-inline-message");
+      } catch (error) {
+        changedCheckbox.checked = !changedCheckbox.checked;
+        setSelectionState("保存失败，请稍后重试。", "form-inline-message error-text");
+      }
+    };
+
+    document.addEventListener("change", (event) => {
+      const checkbox = event.target.closest("[data-stage1-package-checkbox]");
+      if (!checkbox) {
+        return;
+      }
+      saveSelection(checkbox);
+    });
+
+    document.addEventListener("submit", async (event) => {
+      const form = event.target.closest("[data-stage1-delete-form]");
+      if (!form) {
+        return;
+      }
+      event.preventDefault();
+      if (!confirm("确定要删除这道题吗？相关运行记录也会被删除。")) {
+        return;
+      }
+      const scrollY = window.scrollY;
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          headers: { "X-Requested-With": "fetch" },
+        });
+        const html = await response.text();
+        const nextDocument = new DOMParser().parseFromString(html, "text/html");
+        const currentNotice = document.querySelector("#notice-region");
+        const nextNotice = nextDocument.querySelector("#notice-region");
+        const currentList = document.querySelector("#stage1-problem-list-panel");
+        const nextList = nextDocument.querySelector("#stage1-problem-list-panel");
+        if (currentNotice && nextNotice) {
+          currentNotice.replaceWith(nextNotice);
+        }
+        if (currentList && nextList) {
+          currentList.replaceWith(nextList);
+        }
+        window.scrollTo(window.scrollX, scrollY);
+      } catch (error) {
+        setSelectionState("删除失败，请稍后重试。", "form-inline-message error-text");
+      }
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.codesetarena-student/
+.codesetarena-teacher/
+dist/
+output/
+release-archive/
+*.egg-info/
+.DS_Store

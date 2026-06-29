@@ -1,0 +1,131 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>{{ detail.problem_id }} · 正式评测详情</h1>
+    <p>{{ detail.student_number }} {{ detail.subject.name }}。本页只读展示 Stage 1、Stage 2、Stage 3 与正式评测记录。</p>
+  </div>
+  <a class="button secondary" href="/eval">返回正式评测</a>
+</section>
+
+<section class="panel">
+  <h2>Stage 1 原始题目</h2>
+  {% set original = detail.original_problem or detail.problem %}
+  <h3>{{ original.title or original.problem_id }}</h3>
+  <pre class="code-block">{{ original.statement }}</pre>
+  <h3>函数签名</h3>
+  <pre class="code-block">{{ original.signature }}</pre>
+  <h3>参考答案</h3>
+  <pre class="code-block">{{ original.reference_solution }}</pre>
+  <h3>学生自测运行</h3>
+  {% for run in original.run_records or [] %}
+  <div class="run-card">
+    <strong>{{ run.run_id }}</strong> · {{ run.model }} · {{ run.verdict }}
+    <pre class="code-block">{{ run.extracted_code or run.raw_response }}</pre>
+  </div>
+  {% else %}
+  <p class="muted">暂无学生自测运行。</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>Stage 2 审稿意见</h2>
+  {% for item in detail.reviews %}
+  <div class="review-feedback-card">
+    <h3>{{ item.review_id }} · {{ item.reviewer_student_number }}</h3>
+    <p>结论：{{ item.review.conclusion }}；题目质量评分：{{ item.review.quality_score or '缺失' }}</p>
+    <p>建议：{{ item.review.explanation }}</p>
+  </div>
+  {% else %}
+  <p class="muted">暂无审稿意见。</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>Stage 3 修订题目与作者回应</h2>
+  <h3>{{ detail.problem.title or detail.problem.problem_id }}</h3>
+  <pre class="code-block">{{ detail.problem.statement }}</pre>
+  <h3>函数签名</h3>
+  <pre class="code-block">{{ detail.problem.signature }}</pre>
+  <h3>参考答案</h3>
+  <pre class="code-block">{{ detail.problem.reference_solution }}</pre>
+  <h3>作者回应</h3>
+  {% for item in detail.reviews %}
+  {% set response = detail.responses.get(item.review_id, {}) %}
+  <div class="review-feedback-card">
+    <strong>{{ item.review_id }}</strong>
+    <p>作者评分：{{ response.rating or '未评分' }}</p>
+    <p>回应：{{ response.response or '未填写' }}</p>
+  </div>
+  {% else %}
+  <p class="muted">暂无作者回应。</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>正式评测记录</h2>
+  {% for model, row in detail.model_runs.items() %}
+  <section class="eval-model-history" id="model-{{ model }}">
+    <h3>{{ model }}</h3>
+    {% if row.selected.run %}
+    <p>当前展示：{{ row.selected.run.run_id }} · {{ row.selected.run.verdict }} · {{ row.selected.selection_source }}</p>
+    {% else %}
+    <p class="missing-cell">当前没有合法正式评测记录。</p>
+    {% endif %}
+    <form method="post" action="/eval/problems/{{ detail.student_number }}/{{ detail.problem_id }}/select-run" class="inline-form">
+      <input type="hidden" name="model" value="{{ model }}">
+      <label>选择展示记录
+        <span class="help-icon" data-tooltip="默认选中最近一条合法正式评测记录；也可以改选该模型的其它合法历史记录。">?</span>
+        <select name="run_id">
+          {% for run in row.runs %}
+          <option value="{{ run.run_id }}" {% if row.selected.run and row.selected.run.run_id == run.run_id %}selected{% endif %}>
+            {{ run.created_at }} · {{ run.run_id }} · {{ run.verdict }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">保存选择</button>
+    </form>
+    {% for run in row.runs %}
+    <div class="run-card">
+      <h4>{{ run.run_id }} · {{ run.verdict }}</h4>
+      <p>temperature={{ run.temperature }} top_p={{ run.top_p }}</p>
+      <h5>返回代码</h5>
+      <pre class="code-block">{{ run.extracted_code or run.raw_response }}</pre>
+      <h5>用例结果</h5>
+      {% if run.test_results %}
+      <table>
+        <thead><tr><th>用例 ID</th><th>集合</th><th>结果</th><th>期望</th><th>实际/错误</th></tr></thead>
+        <tbody>
+        {% for case in run.test_results %}
+          <tr>
+            <td>{{ case.case_id }}</td>
+            <td>{{ '样例数据' if case.test_set == 'public' else '测试数据' }}</td>
+            <td><span class="status-pill {{ 'ok' if case.verdict == 'passed' else 'warn' }}">{{ case.verdict }}</span></td>
+            <td><code>{{ case.expected | tojson }}</code></td>
+            <td>
+              {% if case.traceback %}
+                {% if case.error_type %}<p><strong>{{ case.error_type }}</strong></p>{% endif %}
+                {% if case.error %}<p>{{ case.error }}</p>{% endif %}
+                <pre>{{ case.traceback }}</pre>
+              {% else %}
+                <code>{{ case.actual | tojson }}</code>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="muted">该记录没有保存逐用例结果。</p>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="muted">该模型暂无历史记录。</p>
+    {% endfor %}
+  </section>
+  {% else %}
+  <p class="muted">暂无正式评测记录。</p>
+  {% endfor %}
+</section>
+{% endblock %}

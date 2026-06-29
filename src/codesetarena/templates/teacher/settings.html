@@ -1,0 +1,66 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>设置</h1>
+  <form method="post" action="/settings/reset" class="reset-form" onsubmit="return confirm('确定要重置助教端设置吗？这会删除此客户端保存的课程设置、模型设置和 API Key。');">
+    <button type="submit" class="danger-quiet">重置设置</button>
+  </form>
+  <form method="post" action="/settings" class="grid-form">
+    <label>课程名称
+      <span class="help-icon" data-tooltip="填写助教端显示的课程名称，只用于本地识别和审计；最多 {{ limits.course_name }} 字符。例如 CodeSetArena v7。">?</span>
+      <input name="course_name" value="{{ state.settings.course_name }}" maxlength="{{ limits.course_name }}">
+    </label>
+    <label>随机种子
+      <span class="help-icon" data-tooltip="用于 Stage 2 审稿分配和 Stage 3 反馈顺序。相同学生包、审稿份数和随机种子会生成相同结果；默认 42。">?</span>
+      <input name="random_seed" value="{{ state.settings.random_seed or default_random_seed }}" maxlength="{{ limits.random_seed }}" inputmode="numeric" pattern="[0-9]{1,9}">
+    </label>
+    <div class="setting-field">
+      <div class="field-title">
+        <h3>Base URL</h3>
+        <span class="help-icon" data-tooltip="助教正式评测使用的模型服务地址。通常保持默认值即可；只有课程统一更换服务时才需要修改。">?</span>
+      </div>
+      <input name="base_url" value="{{ state.settings.base_url }}" maxlength="{{ limits.base_url }}">
+    </div>
+    <div class="setting-field">
+      <div class="field-title">
+        <h3>API Key</h3>
+        <span class="help-icon" data-tooltip="用于调用模型服务。系统会自动读取本地配置；如果这里显示 ******，表示已经设置。可以粘贴新的 Key 覆盖；清空输入框并保存会清除本端 Key。">?</span>
+      </div>
+      <input type="password" name="api_key" value="{{ state.settings.api_key_display }}" maxlength="{{ limits.api_key }}" autocomplete="off">
+    </div>
+    <div class="setting-field">
+      <div class="field-title">
+        <h3>正式评测模型列表</h3>
+        <span class="help-icon" data-tooltip="每行填写一个正式评测可用模型名称。请使用课程统一指定或模型服务支持的模型名。">?</span>
+      </div>
+      <div class="model-list" data-model-list>
+        {% for model in state.settings.models %}
+        <div class="model-row">
+          <input name="models" value="{{ model }}" maxlength="{{ limits.model_name }}">
+          <button type="button" class="secondary" data-remove-model>删除</button>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="button" class="secondary fit-button" data-add-model>新增模型</button>
+    </div>
+    <button type="submit">保存设置</button>
+  </form>
+</section>
+<script>
+  const modelList = document.querySelector("[data-model-list]");
+  const attachRemove = (button) => button.addEventListener("click", () => {
+    if (modelList.querySelectorAll(".model-row").length > 1) {
+      button.closest(".model-row").remove();
+    }
+  });
+  document.querySelectorAll("[data-remove-model]").forEach(attachRemove);
+  document.querySelector("[data-add-model]").addEventListener("click", () => {
+    const row = document.createElement("div");
+    row.className = "model-row";
+    row.innerHTML = '<input name="models" value="" maxlength="{{ limits.model_name }}"><button type="button" class="secondary" data-remove-model>删除</button>';
+    modelList.appendChild(row);
+    attachRemove(row.querySelector("[data-remove-model]"));
+    row.querySelector("input").focus();
+  });
+</script>
+{% endblock %}

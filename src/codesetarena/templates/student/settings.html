@@ -1,0 +1,59 @@
+{% extends "student/base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>设置</h1>
+  <p class="muted">这里只配置模型服务。学号、姓名和班级请在 Stage 页面顶部的学生信息栏保存。</p>
+  <form method="post" action="/settings/reset" class="reset-form" onsubmit="return confirm('确定要重置设置吗？这会删除此客户端保存的模型设置和 API Key。');">
+    <button type="submit" class="danger-quiet">重置设置</button>
+  </form>
+  <form method="post" action="/settings" class="grid-form">
+    <div class="setting-field">
+      <div class="field-title">
+        <h3>Base URL</h3>
+        <span class="help-icon" data-tooltip="模型服务地址。通常保持默认值即可；只有课程或助教提供了新的地址时才需要修改。">?</span>
+      </div>
+      <input name="base_url" value="{{ state.settings.base_url }}" maxlength="{{ limits.base_url }}">
+    </div>
+    <div class="setting-field">
+      <div class="field-title">
+        <h3>API Key</h3>
+        <span class="help-icon" data-tooltip="用于调用模型服务。系统会自动读取本地配置；如果这里显示 ******，表示已经设置。可以粘贴新的 Key 覆盖；清空输入框并保存会清除本端 Key。">?</span>
+      </div>
+      <input type="password" name="api_key" value="{{ state.settings.api_key_display }}" maxlength="{{ limits.api_key }}" autocomplete="off">
+    </div>
+    <div class="setting-field">
+      <div class="field-title">
+        <h3>模型列表</h3>
+        <span class="help-icon" data-tooltip="每行填写一个可用模型名称。请使用课程或模型服务提供的模型名，例如 deepseek-v4-flash。">?</span>
+      </div>
+      <div class="model-list" data-model-list>
+        {% for model in state.settings.models %}
+        <div class="model-row">
+          <input name="models" value="{{ model }}" maxlength="{{ limits.model_name }}">
+          <button type="button" class="secondary" data-remove-model>删除</button>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="button" class="secondary fit-button" data-add-model>新增模型</button>
+    </div>
+    <button type="submit">保存设置</button>
+  </form>
+</section>
+<script>
+  const modelList = document.querySelector("[data-model-list]");
+  const attachRemove = (button) => button.addEventListener("click", () => {
+    if (modelList.querySelectorAll(".model-row").length > 1) {
+      button.closest(".model-row").remove();
+    }
+  });
+  document.querySelectorAll("[data-remove-model]").forEach(attachRemove);
+  document.querySelector("[data-add-model]").addEventListener("click", () => {
+    const row = document.createElement("div");
+    row.className = "model-row";
+    row.innerHTML = '<input name="models" value="" maxlength="{{ limits.model_name }}"><button type="button" class="secondary" data-remove-model>删除</button>';
+    modelList.appendChild(row);
+    attachRemove(row.querySelector("[data-remove-model]"));
+    row.querySelector("input").focus();
+  });
+</script>
+{% endblock %}

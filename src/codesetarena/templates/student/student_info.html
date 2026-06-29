@@ -1,0 +1,72 @@
+<section class="panel student-info-panel">
+  <div class="heading-title">
+    <h2>学生信息</h2>
+    <span class="help-icon" data-tooltip="这里填写学号、姓名和班级。所有 Stage 页面共享同一份学生信息，修改后会自动保存，并随导出包一起提交。">?</span>
+  </div>
+  <form method="post" action="/student-info" class="student-info-form" data-student-info-form>
+    <input type="hidden" name="next" value="{{ request.url.path }}">
+    <div class="student-info-fields">
+      <label class="student-info-field-label" for="student-number">学号
+        <span class="help-icon" data-tooltip="填写课程要求的学号。导出包会用学号命名，只能使用字母、数字、下划线或短横线。">?</span>
+      </label>
+      <input id="student-number" name="student_number" value="{{ state.student.student_number }}" required maxlength="{{ limits.student_number }}" autocomplete="off">
+      <label class="student-info-field-label" for="student-name">姓名
+        <span class="help-icon" data-tooltip="填写真实姓名，便于助教核对提交包。">?</span>
+      </label>
+      <input id="student-name" name="name" value="{{ state.student.name }}" required maxlength="{{ limits.person_name }}" autocomplete="off">
+      <label class="student-info-field-label" for="student-class-id">班级
+        <span class="help-icon" data-tooltip="填写班级、课程组或实验组；如果课程不要求，可以留空。">?</span>
+      </label>
+      <input id="student-class-id" name="class_id" value="{{ state.student.class_id }}" maxlength="{{ limits.class_id }}" autocomplete="off">
+    </div>
+  </form>
+</section>
+<script>
+  (() => {
+    document.querySelectorAll("[data-student-info-form]:not([data-bound])").forEach((form) => {
+      form.dataset.bound = "true";
+      const stateLabel = form.querySelector("[data-student-info-state]");
+      const fields = Array.from(form.querySelectorAll("input[name='student_number'], input[name='name'], input[name='class_id']"));
+      let timer = null;
+      let lastSaved = fields.map((field) => field.value).join("\n");
+
+      const setState = (text, className = "autosave-state muted") => {
+        if (stateLabel) {
+          stateLabel.textContent = text;
+          stateLabel.className = className;
+        }
+      };
+
+      const saveNow = async () => {
+        const current = fields.map((field) => field.value).join("\n");
+        if (current === lastSaved) {
+          setState("");
+          return;
+        }
+        setState("正在保存...");
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: new FormData(form),
+            headers: { "X-Requested-With": "fetch" },
+          });
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) {
+            setState(payload.error || "保存失败", "autosave-state error-text");
+            return;
+          }
+          lastSaved = current;
+          setState("", "autosave-state ok-text");
+        } catch (error) {
+          setState("保存失败，请检查后重试", "autosave-state error-text");
+        }
+      };
+
+      fields.forEach((field) => field.addEventListener("input", () => {
+        setState("有未保存的修改", "autosave-state error-text");
+        window.clearTimeout(timer);
+        timer = window.setTimeout(saveNow, 450);
+      }));
+    });
+  })();
+</script>
