@@ -91,6 +91,14 @@ def test_legacy_problem_with_pre_normalized_validation_does_not_self_invalidate_
     save_student_state(student_root, state)
 
     client = TestClient(create_student_app(student_root))
+    client.post(
+        "/settings",
+        data={
+            "base_url": "https://api.example.test",
+            "api_key": "sk-student-secret",
+            "models": ["deepseek-v4-flash"],
+        },
+    )
     detail_path = "/stage1/problems/pb_old_hard"
     detail = client.get(detail_path)
     assert detail.status_code == 200

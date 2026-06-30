@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION_TAG="v7.1.5"
+VERSION_TAG="v7.1.6"
 DIST_ROOT="dist"
 DIST_DIR="${DIST_ROOT}/${VERSION_TAG}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.org/simple}"
@@ -53,8 +53,8 @@ docker save "${TEACHER_IMAGE}" -o "${TEACHER_RELEASE_DIR}/codesetarena-teacher-$
 } > "${STUDENT_RELEASE_DIR}/PLATFORM.txt"
 cp "${STUDENT_RELEASE_DIR}/PLATFORM.txt" "${TEACHER_RELEASE_DIR}/PLATFORM.txt"
 
-cp deploy/student/docker-compose.yml deploy/student/.env.example "${STUDENT_RELEASE_DIR}/"
-cp deploy/teacher/docker-compose.yml deploy/teacher/.env.example "${TEACHER_RELEASE_DIR}/"
+cp deploy/student/docker-compose.yml "${STUDENT_RELEASE_DIR}/"
+cp deploy/teacher/docker-compose.yml "${TEACHER_RELEASE_DIR}/"
 
 if [[ -d "${DOCKER_OFFLINE_DIR}" ]]; then
   mkdir -p "${STUDENT_RELEASE_DIR}/docker-offline" "${TEACHER_RELEASE_DIR}/docker-offline"

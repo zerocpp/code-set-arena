@@ -4,7 +4,7 @@ from __future__ import annotations
 
 APP_NAME = "CodeSetArena"
 PROJECT_NAME = "code-set-arena"
-DISPLAY_VERSION = "v7.1.5"
+DISPLAY_VERSION = "v7.1.6"
 VERSION_TAG = DISPLAY_VERSION
 
 STUDENT_IMAGE = f"codesetarena-student:{VERSION_TAG}"
@@ -35,9 +35,6 @@ TEACHER_DATA_ENV = "CODESETARENA_TEACHER_DATA_DIR"
 
 DEFAULT_STUDENT_DATA_DIR = ".codesetarena-student"
 DEFAULT_TEACHER_DATA_DIR = ".codesetarena-teacher"
-
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro"]
 
 EXECUTION_PYTHON_VERSION = "3.12"
 EXECUTION_PYTHON_IMAGE = "python:3.12-slim-bookworm"

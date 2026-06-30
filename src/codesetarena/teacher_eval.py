@@ -10,8 +10,6 @@ from typing import Any
 
 from .config import RuntimeConfig, load_runtime_config, settings_are_configured
 from .constants import (
-    DEFAULT_BASE_URL,
-    DEFAULT_MODELS,
     KIND_OFFICIAL_EVAL,
     MODEL_RUN_TEMPERATURE,
     MODEL_RUN_TOP_P,
@@ -473,19 +471,19 @@ def _validate_model_from_settings(state: dict[str, Any], model: str, root: Path 
 
 
 def _effective_models(state: dict[str, Any], root: Path | None = None) -> list[str]:
-    runtime = load_runtime_config(root)
+    del root
     settings = state.get("settings", {})
     if settings_are_configured(settings):
-        return list(settings.get("models") or runtime.models or DEFAULT_MODELS)
-    return runtime.models or list(DEFAULT_MODELS)
+        return list(settings.get("models") or [])
+    return []
 
 
 def _effective_base_url(state: dict[str, Any], root: Path | None = None) -> str:
-    runtime = load_runtime_config(root)
+    del root
     settings = state.get("settings", {})
     if settings_are_configured(settings):
-        return str(settings.get("base_url") or runtime.base_url or DEFAULT_BASE_URL).rstrip("/")
-    return (runtime.base_url or DEFAULT_BASE_URL).rstrip("/")
+        return str(settings.get("base_url") or "").rstrip("/")
+    return ""
 
 
 def _active_eval_job(state: dict[str, Any]) -> dict[str, Any] | None:

@@ -251,7 +251,7 @@
       </div>
       {% if run_records_view %}
       <table>
-        <thead><tr><th>打包</th><th>Run ID</th><th>模型</th><th>结果</th><th>温度</th><th>是否有效</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>打包</th><th>Run ID</th><th>模型</th><th>API 请求状态</th><th>结果</th><th>温度</th><th>是否有效</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
         <tbody>
         {% for row in run_records_view %}
           {% set run = row.run %}
@@ -269,6 +269,7 @@
             </td>
             <td><button class="link-button run-detail-trigger" type="button" data-run-id="{{ run.run_id }}">{{ run.run_id }}</button></td>
             <td>{{ run.model }}</td>
+            <td><span class="status-pill {{ 'ok' if run.api_status != 'failed' else 'warn' }}">{{ run.api_status_display }}</span></td>
             <td><span class="status-pill {{ 'ok' if run.verdict == 'passed' else 'warn' }}">{{ run.verdict }}</span></td>
             <td>{{ run.temperature | default('未记录') }}</td>
             <td><span class="status-pill {{ 'ok' if row.matches_current else 'warn' }}" title="{{ row.validity_reason }}">{{ row.validity_status }}</span></td>
@@ -312,7 +313,8 @@
           <tbody>
             <tr><th>Run ID</th><td>{{ detail_run.run_id }}</td><th>来源</th><td>{{ detail_run.run_origin_display }}</td></tr>
             <tr><th>Base URL</th><td>{{ detail_run.base_url }}</td><th>模型</th><td>{{ detail_run.model }}</td></tr>
-            <tr><th>结果</th><td>{{ detail_run.verdict }}</td><th>时间</th><td>{{ detail_run.created_at_display }}</td></tr>
+            <tr><th>API 请求状态</th><td>{{ detail_run.api_status_display }}</td><th>结果</th><td>{{ detail_run.verdict }}</td></tr>
+            <tr><th>时间</th><td>{{ detail_run.created_at_display }}</td><th>错误</th><td>{{ detail_run.api_error or '无' }}</td></tr>
             <tr><th>temperature</th><td>{{ detail_run.temperature | default('未记录') }}</td><th>top_p</th><td>{{ detail_run.top_p | default('未记录') }}</td></tr>
             <tr><th>提示词版本</th><td>{{ detail_run.prompt_template_id | default('未记录') }}</td><th>有效性</th><td>{{ row.validity_status }}</td></tr>
           </tbody>
@@ -329,6 +331,15 @@
           </div>
           <pre>{{ detail_run.extracted_code }}</pre>
         </div>
+        {% if detail_run.api_error %}
+        <div class="panel-subsection">
+          <div class="heading-title">
+            <h3>API 错误信息</h3>
+            <span class="help-icon" data-tooltip="模型服务返回失败时，这里展示脱敏后的错误信息。">?</span>
+          </div>
+          <pre>{{ detail_run.api_error }}</pre>
+        </div>
+        {% endif %}
         <div class="heading-title">
           <h3>模型运行测试结果</h3>
           <span class="help-icon" data-tooltip="逐条展示该次运行在样例数据和测试数据上的期望值、实际值、错误信息和通过状态。">?</span>
@@ -636,6 +647,14 @@
     const formData = new FormData(editorForm);
     if (submitter) {
       submitter.disabled = true;
+      if (path.endsWith("/run")) {
+        submitter.dataset.originalText = submitter.textContent;
+        submitter.textContent = "正在执行模型运行...";
+        const noticeRegion = document.querySelector("#notice-region");
+        if (noticeRegion) {
+          noticeRegion.innerHTML = '<div class="notice">正在执行模型运行，请稍候。</div>';
+        }
+      }
     }
     try {
       const response = await fetch(action, {
@@ -659,6 +678,10 @@
     } finally {
       if (submitter && document.contains(submitter)) {
         submitter.disabled = false;
+        if (submitter.dataset.originalText) {
+          submitter.textContent = submitter.dataset.originalText;
+          delete submitter.dataset.originalText;
+        }
       }
     }
   };

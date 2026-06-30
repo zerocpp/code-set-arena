@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .constants import DEFAULT_BASE_URL, DEFAULT_MODELS, DEFAULT_RANDOM_SEED
+from .constants import DEFAULT_RANDOM_SEED, VERSION_TAG
 
 
 def read_json(path: Path, default: Any) -> Any:
@@ -35,10 +35,10 @@ def default_student_state() -> dict[str, Any]:
         "student": {"student_number": "", "name": "", "class_id": ""},
         "settings": {
             "configured": False,
-            "base_url": DEFAULT_BASE_URL,
+            "base_url": "",
             "api_key_set": False,
             "api_key_source": "未设置",
-            "models": list(DEFAULT_MODELS),
+            "models": [],
         },
         "problems": [],
         "assignment": None,
@@ -54,11 +54,12 @@ def default_teacher_state() -> dict[str, Any]:
         "settings": {
             "configured": False,
             "course_name": "CodeSetArena v7",
-            "base_url": DEFAULT_BASE_URL,
+            "base_url": "",
             "api_key_set": False,
             "api_key_source": "未设置",
-            "models": list(DEFAULT_MODELS),
+            "models": [],
             "random_seed": DEFAULT_RANDOM_SEED,
+            "allowed_student_versions": [VERSION_TAG],
         },
         "submissions": {},
         "assignments": {},

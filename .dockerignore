@@ -8,6 +8,7 @@ __pycache__
 .DS_Store
 
 dist
+release-archive
 output
 v7
 .codesetarena-student
