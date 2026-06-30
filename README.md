@@ -24,6 +24,10 @@ CodeSetArena 包含学生端和助教端，两端数据相互独立，通过 `.t
 
 完整的学生端 Stage 1/2/3 操作流程、审稿说明、修订说明和提交检查项，请阅读 [系统使用手册](docs/系统使用手册/系统使用手册.md)。
 
+## CodeSetArena 更新操作文档
+
+- [CodeSetArena 操作说明](docs/CodeSetArenaSystem/README.md)
+
 ## 欢迎 Star
 
 如果 CodeSetArena 对你的课程设计、LLM 程序行为研究或教学实验有帮助，欢迎 Star 本项目。
