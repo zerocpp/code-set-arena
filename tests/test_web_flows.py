@@ -239,7 +239,12 @@ def test_student_stage1_list_detail_and_run_results(tmp_path, monkeypatch):
     assert "快照 Hash" not in detail.text
     assert "保存打包选择" not in detail.text
     assert "saveRunPackageSelection" in detail.text
+    assert 'id="run-package-selection-form"' in detail.text
+    assert "new FormData(selectionForm)" in detail.text
     assert 'class="link-button run-detail-trigger" type="button"' in detail.text
+    run_table_start = detail.text.find("<h3>模型运行记录</h3>")
+    run_table_end = detail.text.find("<h3>选中模型运行详情</h3>", run_table_start)
+    assert "<th>温度</th>" not in detail.text[run_table_start:run_table_end]
     assert "#model-run-panel" not in response.headers["location"]
     assert "本次运行提示词" in detail.text
     assert "返回代码" in detail.text
@@ -330,7 +335,13 @@ def test_student_stage1_list_detail_and_run_results(tmp_path, monkeypatch):
         headers={"X-Requested-With": "fetch"},
     )
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "selected": 0}
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["selected"] == 0
+    assert payload["runs"][0]["run_id"] == run_id
+    assert payload["runs"][0]["selected_for_package"] is False
+    assert payload["runs"][0]["selectable_for_package"] is True
+    assert payload["runs"][0]["package_status"] == "可选"
     state = load_student_state(student_root)
     assert state["problems"][0]["run_records"][0]["package_selected"] is False
 
@@ -340,7 +351,11 @@ def test_student_stage1_list_detail_and_run_results(tmp_path, monkeypatch):
         headers={"X-Requested-With": "fetch"},
     )
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "selected": 1}
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["selected"] == 1
+    assert payload["runs"][0]["selected_for_package"] is True
+    assert payload["runs"][0]["package_status"] == "已选打包"
 
     response = client.post(
         f"{detail_path}/runs/package-selection",
@@ -348,7 +363,11 @@ def test_student_stage1_list_detail_and_run_results(tmp_path, monkeypatch):
         follow_redirects=False,
     )
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "selected": 0}
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["selected"] == 0
+    assert payload["runs"][0]["selected_for_package"] is False
+    assert payload["runs"][0]["package_status"] == "可选"
     state = load_student_state(student_root)
     assert state["problems"][0]["run_records"][0]["package_selected"] is False
 
@@ -358,7 +377,10 @@ def test_student_stage1_list_detail_and_run_results(tmp_path, monkeypatch):
         follow_redirects=False,
     )
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "selected": 1}
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["selected"] == 1
+    assert payload["runs"][0]["selected_for_package"] is True
 
     home = client.get("/stage1")
     assert "可选" in home.text
@@ -430,6 +452,65 @@ def test_student_stage1_list_detail_and_run_results(tmp_path, monkeypatch):
     assert "参考答案执行结果未通过" in detail.text
     assert "校验通过" not in detail.text
     assert '<span class="status-pill ok">可运行</span>' not in detail.text
+
+
+def test_student_stage1_run_package_selection_draft_persists_across_page_reads(tmp_path):
+    student_root = tmp_path / "student"
+    client = TestClient(create_student_app(student_root))
+    detail_path = _create_valid_selected_problem(client, student_root)
+    data = _valid_problem_data()
+    response = client.post(f"{detail_path}/run", data=data, follow_redirects=False)
+    assert response.status_code == 303
+    state = load_student_state(student_root)
+    problem = state["problems"][0]
+    run_ids = [run["run_id"] for run in problem["run_records"]]
+    assert len(run_ids) == 2
+    assert [run["package_selected"] for run in problem["run_records"]] == [True, True]
+    assert "2 / 2" in client.get("/stage1").text
+
+    response = client.post(
+        f"{detail_path}/runs/package-selection",
+        data={"package_run_ids": run_ids[1]},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected"] == 1
+    run_payload = {item["run_id"]: item for item in payload["runs"]}
+    assert run_payload[run_ids[0]]["selected_for_package"] is False
+    assert run_payload[run_ids[0]]["package_status"] == "可选"
+    assert run_payload[run_ids[1]]["selected_for_package"] is True
+    assert run_payload[run_ids[1]]["package_status"] == "已选打包"
+
+    detail = client.get(detail_path)
+    run_table = detail.text[
+        detail.text.find("<h3>模型运行记录</h3>") : detail.text.find("<h3>选中模型运行详情</h3>")
+    ]
+    assert run_table.count("已选打包") == 1
+    assert "1 / 2" in client.get("/stage1").text
+    state = load_student_state(student_root)
+    selected_after_read = [run["run_id"] for run in state["problems"][0]["run_records"] if run["package_selected"]]
+    assert selected_after_read == [run_ids[1]]
+
+    response = client.post(
+        f"{detail_path}/runs/package-selection",
+        data={},
+        headers={"X-Requested-With": "fetch"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected"] == 0
+    assert all(item["package_status"] == "可选" for item in payload["runs"])
+
+    detail = client.get(detail_path)
+    run_table = detail.text[
+        detail.text.find("<h3>模型运行记录</h3>") : detail.text.find("<h3>选中模型运行详情</h3>")
+    ]
+    assert "已选打包" not in run_table
+    assert run_table.count("可选") >= 2
+    assert "0 / 2" in client.get("/stage1").text
+    state = load_student_state(student_root)
+    assert [run["package_selected"] for run in state["problems"][0]["run_records"]] == [False, False]
 
 
 def test_student_stage1_real_api_error_creates_failed_unselectable_run(tmp_path, monkeypatch):
@@ -1454,6 +1535,40 @@ def test_student_stage3_groups_reviews_by_problem_and_requires_rating(tmp_path):
     assert response.status_code == 303
     revised_problem = next(item for item in load_student_state(student_root)["problems"] if item["problem_id"] == problem_id)
     run_id = revised_problem["run_records"][0]["run_id"]
+    html = student.get("/stage3").text
+    card_start = html.find(f'id="stage3-problem-{problem_id}"')
+    card_end = html.find('<section class="panel package">', card_start)
+    card_html = html[card_start:card_end]
+    run_table = card_html[
+        card_html.find("<h3>模型运行记录</h3>") : card_html.find("<h3>选中模型运行详情</h3>")
+    ]
+    assert "<th>温度</th>" not in run_table
+
+    response = student.post(
+        f"/stage3/problems/{problem_id}/runs/package-selection",
+        data={"package_run_ids": run_id},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    response = student.post(
+        f"/stage3/problems/{problem_id}/runs/package-selection",
+        data={},
+        headers={"X-Requested-With": "fetch"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    html = student.get("/stage3").text
+    card_start = html.find(f'id="stage3-problem-{problem_id}"')
+    card_end = html.find('<section class="panel package">', card_start)
+    card_html = html[card_start:card_end]
+    run_table = card_html[
+        card_html.find("<h3>模型运行记录</h3>") : card_html.find("<h3>选中模型运行详情</h3>")
+    ]
+    assert "已选打包" not in run_table
+    assert "可选" in run_table
+    revised_problem = next(item for item in load_student_state(student_root)["problems"] if item["problem_id"] == problem_id)
+    assert revised_problem["run_records"][0]["package_selected"] is False
+
     response = student.post(
         f"/stage3/problems/{problem_id}/runs/package-selection",
         data={"package_run_ids": run_id},

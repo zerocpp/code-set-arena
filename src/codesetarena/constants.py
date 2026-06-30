@@ -4,7 +4,7 @@ from __future__ import annotations
 
 APP_NAME = "CodeSetArena"
 PROJECT_NAME = "code-set-arena"
-DISPLAY_VERSION = "v7.1.6"
+DISPLAY_VERSION = "v7.1.7"
 VERSION_TAG = DISPLAY_VERSION
 
 STUDENT_IMAGE = f"codesetarena-student:{VERSION_TAG}"

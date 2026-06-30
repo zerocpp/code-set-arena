@@ -278,7 +278,7 @@
     </div>
     {% if group.run_records_view %}
     <table>
-      <thead><tr><th>打包</th><th>Run ID</th><th>模型</th><th>API 请求状态</th><th>结果</th><th>温度</th><th>是否有效</th><th>状态</th><th>时间</th></tr></thead>
+      <thead><tr><th>打包</th><th>Run ID</th><th>模型</th><th>API 请求状态</th><th>结果</th><th>是否有效</th><th>状态</th><th>时间</th></tr></thead>
       <tbody>
       {% for row in group.run_records_view %}
       {% set run = row.run %}
@@ -290,7 +290,6 @@
         <td>{{ run.model }}</td>
         <td><span class="status-pill {{ 'ok' if run.api_status != 'failed' else 'warn' }}">{{ run.api_status_display }}</span></td>
         <td><span class="status-pill {{ 'ok' if run.verdict == 'passed' else 'warn' }}">{{ run.verdict }}</span></td>
-        <td>{{ run.temperature | default('未记录') }}</td>
         <td><span class="status-pill {{ 'ok' if row.matches_current else 'warn' }}" title="{{ row.validity_reason }}">{{ row.validity_status }}</span></td>
         <td><span class="status-pill {{ 'ok' if row.selected_for_package else ('warn' if not row.selectable_for_package else '') }}">{{ row.package_status }}</span></td>
         <td>{{ run.created_at_display }}</td>
