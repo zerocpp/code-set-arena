@@ -35,6 +35,8 @@
   </div>
 </section>
 
+<form id="run-package-selection-form" method="post" action="/stage1/problems/{{ problem.problem_id }}/runs/package-selection"></form>
+
 <form method="post" action="/stage1/problems/{{ problem.problem_id }}/save" class="problem-editor" id="problem-editor">
   <section class="panel editor-section">
     <div class="section-heading">
@@ -251,7 +253,7 @@
       </div>
       {% if run_records_view %}
       <table>
-        <thead><tr><th>打包</th><th>Run ID</th><th>模型</th><th>API 请求状态</th><th>结果</th><th>温度</th><th>是否有效</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>打包</th><th>Run ID</th><th>模型</th><th>API 请求状态</th><th>结果</th><th>是否有效</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
         <tbody>
         {% for row in run_records_view %}
           {% set run = row.run %}
@@ -259,6 +261,7 @@
             <td>
               <input
                 type="checkbox"
+                form="run-package-selection-form"
                 name="package_run_ids"
                 value="{{ run.run_id }}"
                 data-package-run-checkbox
@@ -271,9 +274,8 @@
             <td>{{ run.model }}</td>
             <td><span class="status-pill {{ 'ok' if run.api_status != 'failed' else 'warn' }}">{{ run.api_status_display }}</span></td>
             <td><span class="status-pill {{ 'ok' if run.verdict == 'passed' else 'warn' }}">{{ run.verdict }}</span></td>
-            <td>{{ run.temperature | default('未记录') }}</td>
             <td><span class="status-pill {{ 'ok' if row.matches_current else 'warn' }}" title="{{ row.validity_reason }}">{{ row.validity_status }}</span></td>
-            <td><span class="status-pill {{ 'ok' if row.selected_for_package else ('warn' if not row.selectable_for_package else '') }}">{{ row.package_status }}</span></td>
+            <td><span class="status-pill {{ row.package_status_class }}" data-run-package-status="{{ run.run_id }}">{{ row.package_status }}</span></td>
             <td>{{ run.created_at_display }}</td>
             <td>
               <button
@@ -579,8 +581,12 @@
 
   const saveRunPackageSelection = async () => {
     const currentRunSelectionState = document.querySelector("#run-selection-state");
+    const selectionForm = document.querySelector("#run-package-selection-form");
+    if (!selectionForm) {
+      return;
+    }
     const scrollY = window.scrollY;
-    const formData = new FormData(editorForm);
+    const formData = new FormData(selectionForm);
     formData.set("_response_format", "json");
     if (currentRunSelectionState) {
       currentRunSelectionState.textContent = "正在保存运行记录选择...";
@@ -605,6 +611,21 @@
         const maxRuns = {{ max_selected_runs_per_problem }};
         currentRunSelectionState.textContent = `当前选择 ${payload.selected} 条；导出包要求每道题选择 ${minRuns}-${maxRuns} 条当前有效的记录。`;
         currentRunSelectionState.className = payload.selected >= minRuns && payload.selected <= maxRuns ? "ok-text" : "error-text";
+      }
+      if (Array.isArray(payload.runs)) {
+        payload.runs.forEach((run) => {
+          const escapedRunId = CSS.escape(String(run.run_id || ""));
+          const checkbox = document.querySelector(`[data-package-run-checkbox][value="${escapedRunId}"]`);
+          if (checkbox) {
+            checkbox.checked = Boolean(run.selected_for_package);
+            checkbox.disabled = !run.selectable_for_package;
+          }
+          const status = document.querySelector(`[data-run-package-status="${escapedRunId}"]`);
+          if (status) {
+            status.textContent = run.package_status || "";
+            status.className = `status-pill ${run.package_status_class || ""}`.trim();
+          }
+        });
       }
       updateRunSelectionState();
     } catch (error) {

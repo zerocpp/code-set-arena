@@ -292,7 +292,7 @@ def create_student_app(data_root: Path | None = None) -> FastAPI:
         except RunEngineError as exc:
             validation = _validation_error(problem, str(exc), exc.error_type)
         problem["validation"] = validation
-        _auto_select_recent_valid_runs(problem)
+        _clear_invalid_run_selections(problem)
         save(state_obj)
         if validation["status"] == "passed":
             return redirect(f"/stage1/problems/{problem_id}#validation-panel", notice="校验通过")
@@ -350,7 +350,7 @@ def create_student_app(data_root: Path | None = None) -> FastAPI:
             return redirect(f"/stage1/problems/{problem_id}", error=str(exc))
         save(state_obj)
         if json_response:
-            return JSONResponse({"ok": True, "selected": selected_count})
+            return JSONResponse(_run_selection_response_payload(problem, selected_count))
         return redirect(
             f"/stage1/problems/{problem_id}",
             notice=f"已选择 {selected_count} 条模型运行记录用于打包",
@@ -402,7 +402,7 @@ def create_student_app(data_root: Path | None = None) -> FastAPI:
         problem["run_records"] = [
             run for run in problem.get("run_records", []) if run.get("run_id") != run_id
         ]
-        _auto_select_recent_valid_runs(problem)
+        _clear_invalid_run_selections(problem)
         save(state_obj)
         if len(problem["run_records"]) == before:
             return redirect(f"/stage1/problems/{problem_id}", error="模型运行记录不存在")
@@ -658,7 +658,7 @@ def create_student_app(data_root: Path | None = None) -> FastAPI:
         except RunEngineError as exc:
             validation = _validation_error(problem, str(exc), exc.error_type)
         problem["validation"] = validation
-        _auto_select_recent_valid_runs(problem)
+        _clear_invalid_run_selections(problem)
         save(state_obj)
         if validation["status"] == "passed":
             return _stage3_problem_redirect(problem_id, notice="修订题目已保存，参考答案校验通过")
@@ -1015,7 +1015,7 @@ def _normalize_state_for_form(state: dict[str, Any]) -> bool:
     for problem in state.get("problems", []):
         changed = _normalize_problem_for_form(problem) or changed
         before_selection = [bool(run.get("package_selected")) for run in problem.get("run_records", [])]
-        _auto_select_recent_valid_runs(problem)
+        _clear_invalid_run_selections(problem)
         after_selection = [bool(run.get("package_selected")) for run in problem.get("run_records", [])]
         changed = before_selection != after_selection or changed
     return changed
@@ -1192,8 +1192,20 @@ def _run_records_view(
     for run in records:
         matches, validity_reason = _run_record_matches_current_prompt(problem, run)
         has_raw_evidence = _run_record_has_raw_evidence(run)
-        selectable_for_package = matches and has_raw_evidence
+        selectable_for_package = matches and has_raw_evidence and bool(run.get("run_id"))
         selected_for_package = bool(run.get("package_selected")) and selectable_for_package
+        if selected_for_package:
+            package_status = "已选打包"
+            package_status_class = "ok"
+        elif selectable_for_package:
+            package_status = "可选"
+            package_status_class = ""
+        elif matches:
+            package_status = "记录不完整"
+            package_status_class = "warn"
+        else:
+            package_status = "已失效"
+            package_status_class = "warn"
         display_run = {
             **run,
             "created_at_display": _format_display_time(run.get("created_at", "")),
@@ -1207,9 +1219,8 @@ def _run_records_view(
             "validity_reason": validity_reason,
             "selectable_for_package": selectable_for_package,
             "selected_for_package": selected_for_package,
-            "package_status": "已选打包"
-            if selected_for_package
-            else ("可选" if selectable_for_package else ("记录不完整" if matches else "已失效")),
+            "package_status": package_status,
+            "package_status_class": package_status_class,
         }
         rows.append(row)
         if matches and latest_matching is None:
@@ -1451,9 +1462,7 @@ def _set_package_run_selection(problem: dict[str, Any], selected_run_ids: set[st
     selectable_run_ids = {
         str(run.get("run_id", ""))
         for run in records
-        if _run_record_matches_current_prompt(problem, run)[0]
-        and _run_record_has_raw_evidence(run)
-        and run.get("run_id")
+        if _run_record_selectable_for_package(problem, run)
     }
     invalid_ids = selected_run_ids - selectable_run_ids
     if invalid_ids:
@@ -1465,9 +1474,7 @@ def _set_package_run_selection(problem: dict[str, Any], selected_run_ids: set[st
         )
     for run in records:
         run["package_selected"] = (
-            _run_record_matches_current_prompt(problem, run)[0]
-            and _run_record_has_raw_evidence(run)
-            and run.get("run_id") in selected_run_ids
+            _run_record_selectable_for_package(problem, run) and run.get("run_id") in selected_run_ids
         )
     return len(selected_run_ids)
 
@@ -1477,9 +1484,7 @@ def _set_package_run_selection_draft(problem: dict[str, Any], selected_run_ids: 
     selectable_run_ids = {
         str(run.get("run_id", ""))
         for run in records
-        if _run_record_matches_current_prompt(problem, run)[0]
-        and _run_record_has_raw_evidence(run)
-        and run.get("run_id")
+        if _run_record_selectable_for_package(problem, run)
     }
     invalid_ids = selected_run_ids - selectable_run_ids
     if invalid_ids:
@@ -1488,9 +1493,7 @@ def _set_package_run_selection_draft(problem: dict[str, Any], selected_run_ids: 
         raise ValueError(f"每道题最多选择 {MAX_SELECTED_RUNS_PER_PROBLEM} 条模型运行记录用于打包")
     for run in records:
         run["package_selected"] = (
-            _run_record_matches_current_prompt(problem, run)[0]
-            and _run_record_has_raw_evidence(run)
-            and run.get("run_id") in selected_run_ids
+            _run_record_selectable_for_package(problem, run) and run.get("run_id") in selected_run_ids
         )
     return len(selected_run_ids)
 
@@ -1498,16 +1501,47 @@ def _set_package_run_selection_draft(problem: dict[str, Any], selected_run_ids: 
 def _auto_select_recent_valid_runs(problem: dict[str, Any]) -> int:
     selected_count = 0
     for run in problem.get("run_records", []):
-        selectable = (
-            _run_record_matches_current_prompt(problem, run)[0]
-            and _run_record_has_raw_evidence(run)
-            and bool(run.get("run_id"))
-        )
+        selectable = _run_record_selectable_for_package(problem, run)
         should_select = selectable and selected_count < MAX_SELECTED_RUNS_PER_PROBLEM
         run["package_selected"] = should_select
         if should_select:
             selected_count += 1
     return selected_count
+
+
+def _clear_invalid_run_selections(problem: dict[str, Any]) -> int:
+    cleared = 0
+    for run in problem.get("run_records", []):
+        if run.get("package_selected") and not _run_record_selectable_for_package(problem, run):
+            run["package_selected"] = False
+            cleared += 1
+    return cleared
+
+
+def _run_record_selectable_for_package(problem: dict[str, Any], run: dict[str, Any]) -> bool:
+    return (
+        _run_record_matches_current_prompt(problem, run)[0]
+        and _run_record_has_raw_evidence(run)
+        and bool(run.get("run_id"))
+    )
+
+
+def _run_selection_response_payload(problem: dict[str, Any], selected_count: int) -> dict[str, Any]:
+    run_rows, _ = _run_records_view(problem)
+    return {
+        "ok": True,
+        "selected": selected_count,
+        "runs": [
+            {
+                "run_id": row["run"].get("run_id", ""),
+                "selected_for_package": row["selected_for_package"],
+                "selectable_for_package": row["selectable_for_package"],
+                "package_status": row["package_status"],
+                "package_status_class": row["package_status_class"],
+            }
+            for row in run_rows
+        ],
+    }
 
 
 def _selected_package_run_records(problem: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1644,17 +1678,17 @@ def _validation_error(problem: dict[str, Any], message: str, error_type: str = "
 def _invalidate_validation_if_changed(problem: dict[str, Any]) -> bool:
     validation = problem.get("validation")
     if not validation:
-        _auto_select_recent_valid_runs(problem)
+        _clear_invalid_run_selections(problem)
         return False
     if validation.get("content_hash") == _problem_signature_hash(problem):
-        _auto_select_recent_valid_runs(problem)
+        _clear_invalid_run_selections(problem)
         return False
     problem["validation"] = {
         **validation,
         "status": "stale",
         "message": "题目已变更，校验已失效，需要重新校验",
     }
-    _auto_select_recent_valid_runs(problem)
+    _clear_invalid_run_selections(problem)
     return True
 
 

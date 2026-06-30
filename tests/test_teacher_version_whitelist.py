@@ -14,21 +14,21 @@ from codesetarena.teacher_version_gate import assert_student_package_version_all
 
 
 def test_student_package_version_whitelist_allows_only_configured_versions():
-    settings = {"allowed_student_versions": ["v7.1.6", "v7.1.5"]}
+    settings = {"allowed_student_versions": ["v7.1.7", "v7.1.5"]}
     for stage, kind in [(STAGE1, KIND_PROBLEMS), (STAGE2, KIND_REVIEWS), (STAGE3, KIND_REVISION)]:
         assert_student_package_version_allowed(
             {
                 "package_role": ROLE_STUDENT,
                 "package_stage": stage,
                 "package_kind": kind,
-                "version_tag": "v7.1.6",
+                "version_tag": "v7.1.7",
             },
             settings,
         )
 
 
 def test_student_package_version_whitelist_rejects_missing_or_disallowed_version():
-    settings = {"allowed_student_versions": ["v7.1.6"]}
+    settings = {"allowed_student_versions": ["v7.1.7"]}
 
     with pytest.raises(PackageError, match="学生端版本 v7.1.5 不在当前允许列表"):
         assert_student_package_version_allowed(

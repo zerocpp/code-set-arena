@@ -175,7 +175,7 @@ def student_settings_set(
     class_id = class_id.strip()
     try:
         if clear_api_key:
-            raise ValueError("API Key 不能为空，v7.1.6 起不支持通过 settings set 清空 API Key")
+            raise ValueError("API Key 不能为空，当前版本不支持通过 settings set 清空 API Key")
         base_url = base_url.strip()
         parsed_models = parse_models(models)
         validate_base_url(base_url)
@@ -758,7 +758,7 @@ def teacher_settings_set(
     course_name = course_name.strip() or "CodeSetArena v7"
     try:
         if clear_api_key:
-            raise ValueError("API Key 不能为空，v7.1.6 起不支持通过 settings set 清空 API Key")
+            raise ValueError("API Key 不能为空，当前版本不支持通过 settings set 清空 API Key")
         base_url = base_url.strip()
         parsed_models = parse_models(models)
         validate_base_url(base_url)

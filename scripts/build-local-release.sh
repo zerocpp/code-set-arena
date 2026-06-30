@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION_TAG="v7.1.6"
+VERSION_TAG="v7.1.7"
 DIST_ROOT="dist"
 DIST_DIR="${DIST_ROOT}/${VERSION_TAG}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.org/simple}"
