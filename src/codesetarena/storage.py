@@ -34,6 +34,7 @@ def default_student_state() -> dict[str, Any]:
     return {
         "student": {"student_number": "", "name": "", "class_id": ""},
         "settings": {
+            "configured": False,
             "base_url": DEFAULT_BASE_URL,
             "api_key_set": False,
             "api_key_source": "未设置",
@@ -51,6 +52,7 @@ def default_student_state() -> dict[str, Any]:
 def default_teacher_state() -> dict[str, Any]:
     return {
         "settings": {
+            "configured": False,
             "course_name": "CodeSetArena v7",
             "base_url": DEFAULT_BASE_URL,
             "api_key_set": False,

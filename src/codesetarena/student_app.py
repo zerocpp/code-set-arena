@@ -43,7 +43,14 @@ from .constants import (
     STAGE2,
     STAGE3,
 )
-from .config import MASKED_API_KEY, RuntimeConfig, load_runtime_config, parse_models, update_local_api_key
+from .config import (
+    MASKED_API_KEY,
+    RuntimeConfig,
+    load_runtime_config,
+    parse_models,
+    settings_are_configured,
+    update_local_api_key,
+)
 from .course_validation import (
     ALLOWED_REVIEW_CONCLUSIONS,
     validate_author_response,
@@ -128,7 +135,7 @@ def create_student_app(data_root: Path | None = None) -> FastAPI:
         state_obj = state()
         runtime = load_runtime_config(root)
         try:
-            api_key = str(form.get("api_key", ""))
+            api_key = str(form.get("api_key", MASKED_API_KEY))
             base_url = str(form.get("base_url", "")).strip() or runtime.base_url
             models = _parse_models_from_form(form)
             ensure_max_length("base_url", base_url)
@@ -140,6 +147,7 @@ def create_student_app(data_root: Path | None = None) -> FastAPI:
         except ValueError as exc:
             return redirect("/settings", error=str(exc))
         state_obj["settings"] = {
+            "configured": True,
             "base_url": base_url,
             "api_key_set": runtime.api_key_set,
             "api_key_source": runtime.api_key_source,
@@ -1788,11 +1796,14 @@ def _assert_manifest(manifest: dict[str, Any], role: str, stage: str, kind: str)
 def _effective_settings(state: dict[str, Any], root: Path | None = None) -> dict[str, Any]:
     runtime = load_runtime_config(root)
     settings = state.get("settings", {})
-    stored_base_url = str(settings.get("base_url") or "")
-    base_url = runtime.base_url if stored_base_url in {"", DEFAULT_BASE_URL} else stored_base_url
-    stored_models = settings.get("models") or []
-    models = runtime.models if stored_models == [] or stored_models == DEFAULT_MODELS else stored_models
+    if settings_are_configured(settings):
+        base_url = str(settings.get("base_url") or runtime.base_url or DEFAULT_BASE_URL)
+        models = settings.get("models") or runtime.models or list(DEFAULT_MODELS)
+    else:
+        base_url = runtime.base_url or DEFAULT_BASE_URL
+        models = runtime.models or list(DEFAULT_MODELS)
     return {
+        "configured": settings_are_configured(settings),
         "base_url": base_url or DEFAULT_BASE_URL,
         "api_key_set": runtime.api_key_set,
         "api_key_source": runtime.api_key_source,

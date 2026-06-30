@@ -8,7 +8,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from .config import RuntimeConfig, load_runtime_config
+from .config import RuntimeConfig, load_runtime_config, settings_are_configured
 from .constants import (
     DEFAULT_BASE_URL,
     DEFAULT_MODELS,
@@ -474,18 +474,18 @@ def _validate_model_from_settings(state: dict[str, Any], model: str, root: Path 
 
 def _effective_models(state: dict[str, Any], root: Path | None = None) -> list[str]:
     runtime = load_runtime_config(root)
-    stored_models = state.get("settings", {}).get("models") or []
-    if stored_models == [] or stored_models == DEFAULT_MODELS:
-        return runtime.models or list(DEFAULT_MODELS)
-    return list(stored_models)
+    settings = state.get("settings", {})
+    if settings_are_configured(settings):
+        return list(settings.get("models") or runtime.models or DEFAULT_MODELS)
+    return runtime.models or list(DEFAULT_MODELS)
 
 
 def _effective_base_url(state: dict[str, Any], root: Path | None = None) -> str:
     runtime = load_runtime_config(root)
-    stored_base_url = str(state.get("settings", {}).get("base_url") or "")
-    if stored_base_url in {"", DEFAULT_BASE_URL}:
-        return (runtime.base_url or DEFAULT_BASE_URL).rstrip("/")
-    return stored_base_url.rstrip("/")
+    settings = state.get("settings", {})
+    if settings_are_configured(settings):
+        return str(settings.get("base_url") or runtime.base_url or DEFAULT_BASE_URL).rstrip("/")
+    return (runtime.base_url or DEFAULT_BASE_URL).rstrip("/")
 
 
 def _active_eval_job(state: dict[str, Any]) -> dict[str, Any] | None:

@@ -35,7 +35,13 @@ from .constants import (
     STAGE3,
     STAGE4,
 )
-from .config import MASKED_API_KEY, load_runtime_config, parse_models, update_local_api_key
+from .config import (
+    MASKED_API_KEY,
+    load_runtime_config,
+    parse_models,
+    settings_are_configured,
+    update_local_api_key,
+)
 from .course_validation import (
     validate_reviews_for_assignment,
     validate_responses_for_feedback,
@@ -115,7 +121,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
         runtime = load_runtime_config(root)
         try:
             course_name = str(form.get("course_name", "")).strip() or "CodeSetArena v7"
-            api_key = str(form.get("api_key", ""))
+            api_key = str(form.get("api_key", MASKED_API_KEY))
             base_url = str(form.get("base_url", "")).strip() or runtime.base_url
             models = _parse_models_from_form(form)
             random_seed = parse_random_seed(form.get("random_seed", DEFAULT_RANDOM_SEED))
@@ -128,6 +134,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
         except ValueError as exc:
             return redirect("/settings", error=str(exc))
         state_obj["settings"] = {
+            "configured": True,
             "course_name": course_name,
             "base_url": base_url,
             "api_key_set": runtime.api_key_set,
@@ -941,11 +948,14 @@ def _safe_rate(numerator: int, denominator: int) -> float:
 def _effective_settings(state: dict[str, Any], root: Path | None = None) -> dict[str, Any]:
     runtime = load_runtime_config(root)
     settings = state.get("settings", {})
-    stored_base_url = str(settings.get("base_url") or "")
-    base_url = runtime.base_url if stored_base_url in {"", DEFAULT_BASE_URL} else stored_base_url
-    stored_models = settings.get("models") or []
-    models = runtime.models if stored_models == [] or stored_models == DEFAULT_MODELS else stored_models
+    if settings_are_configured(settings):
+        base_url = str(settings.get("base_url") or runtime.base_url or DEFAULT_BASE_URL)
+        models = settings.get("models") or runtime.models or list(DEFAULT_MODELS)
+    else:
+        base_url = runtime.base_url or DEFAULT_BASE_URL
+        models = runtime.models or list(DEFAULT_MODELS)
     return {
+        "configured": settings_are_configured(settings),
         "course_name": settings.get("course_name") or "CodeSetArena v7",
         "base_url": base_url or DEFAULT_BASE_URL,
         "api_key_set": runtime.api_key_set,

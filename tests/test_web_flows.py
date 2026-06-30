@@ -490,7 +490,7 @@ def test_settings_save_api_key_without_echoing_secret(tmp_path, monkeypatch):
     assert response.status_code == 200
     state = load_student_state(student_root)
     assert state["settings"]["api_key_set"] is True
-    assert state["settings"]["api_key_source"] == "环境变量 API_KEY"
+    assert state["settings"]["api_key_source"] == str(student_root / ".env")
     assert "api_key" not in state["settings"]
     assert state["settings"]["models"] == ["model-a", "model-b"]
     assert "sk-student-secret" not in response.text
@@ -543,7 +543,7 @@ def test_settings_save_api_key_without_echoing_secret(tmp_path, monkeypatch):
     assert response.status_code == 200
     state = load_teacher_state(teacher_root)
     assert state["settings"]["api_key_set"] is True
-    assert state["settings"]["api_key_source"] == "环境变量 API_KEY"
+    assert state["settings"]["api_key_source"] == str(teacher_root / ".env")
     assert "api_key" not in state["settings"]
     assert "sk-teacher-secret" not in response.text
     assert "sk-env-secret" not in response.text
@@ -746,7 +746,7 @@ def test_settings_api_key_save_keep_clear_and_invalid(tmp_path, monkeypatch):
     )
     assert response.status_code == 303
     assert load_student_state(student_root)["settings"]["api_key_set"] is False
-    assert "API_KEY" not in (student_root / ".env").read_text(encoding="utf-8")
+    assert (student_root / ".env").read_text(encoding="utf-8") == "API_KEY=\n"
 
     teacher_root = tmp_path / "teacher"
     teacher = TestClient(create_teacher_app(teacher_root))

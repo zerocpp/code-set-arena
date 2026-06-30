@@ -180,6 +180,7 @@ def student_settings_set(
         raise typer.BadParameter(str(exc)) from exc
     state["student"] = {"student_number": student_number, "name": name, "class_id": class_id}
     state["settings"] = {
+        "configured": True,
         "base_url": base_url,
         "api_key_set": runtime.api_key_set,
         "api_key_source": runtime.api_key_source,
@@ -749,6 +750,7 @@ def teacher_settings_set(
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
     state["settings"] = {
+        "configured": True,
         "course_name": course_name,
         "base_url": base_url,
         "api_key_set": runtime.api_key_set,
