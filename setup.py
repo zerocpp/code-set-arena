@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="code-set-arena",
-    version="7.1.3",
+    version="7.1.4",
     description="CodeSetArena local course system",
     package_dir={"": "src"},
     packages=find_packages("src"),
@@ -20,6 +20,7 @@ setup(
         "dev": [
             "httpx>=0.27",
             "pytest>=8",
+            "reportlab>=4",
             "ruff>=0.5",
         ]
     },

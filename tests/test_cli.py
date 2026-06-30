@@ -177,6 +177,60 @@ def test_cli_student_stage1_list_delete_and_stale_run_guard(tmp_path, monkeypatc
     assert json.loads(result.stdout)["count"] == 0
 
 
+def test_cli_student_stage1_run_reports_real_api_error(tmp_path, monkeypatch):
+    def failing_completion(*, config, model, prompt, timeout=60.0):
+        raise RuntimeError("真实模型请求失败：HTTP 400 model kfcvivo50 not found")
+
+    monkeypatch.setattr("codesetarena.student_app.real_completion", failing_completion, raising=False)
+    monkeypatch.setenv("MODELS", "kfcvivo50")
+    runner = CliRunner()
+    data_dir = tmp_path / "student"
+    result = runner.invoke(
+        app,
+        [
+            "student",
+            "settings",
+            "set",
+            "--data-dir",
+            str(data_dir),
+            "--student-number",
+            "2026000001",
+            "--name",
+            "Alice",
+            "--models",
+            "kfcvivo50",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    result = runner.invoke(app, ["student", "stage1", "create", "--data-dir", str(data_dir), "--sample", "identity"])
+    assert result.exit_code == 0, result.stdout
+    problem_id = json.loads(result.stdout)["problem_id"]
+    assert (
+        runner.invoke(app, ["student", "stage1", "validate", "--data-dir", str(data_dir), "--problem-id", problem_id])
+        .exit_code
+        == 0
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "student",
+            "stage1",
+            "run",
+            "--data-dir",
+            str(data_dir),
+            "--problem-id",
+            problem_id,
+            "--model",
+            "kfcvivo50",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "真实模型请求失败：HTTP 400 model kfcvivo50 not found" in result.output
+    assert load_student_state(data_dir)["problems"][0]["run_records"] == []
+
+
 def test_cli_student_three_stage_import_export_flow(tmp_path, monkeypatch):
     monkeypatch.setenv("API_KEY", "sk-cli-secret")
     runner = CliRunner()

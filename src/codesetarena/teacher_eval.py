@@ -20,11 +20,11 @@ from .constants import (
     RUN_ORIGIN_TA_OFFICIAL_EVAL,
     STAGE4,
 )
-from .model_client import mock_completion
+from .model_client import real_completion
+from .model_run_utils import execute_model_code, extract_function_code
 from .package_names import teacher_bulk_name
 from .packages import write_package
 from .prompting import prompt_template_id
-from .run_engine import execute_solution_code
 from .student_app import (
     _official_prompt_for_problem,
     _official_prompt_parts_for_problem,
@@ -324,8 +324,6 @@ def _build_official_eval_run(
     prompt_parts = _official_prompt_parts_for_problem(problem)
     run_id = "ta_" + uuid.uuid4().hex[:12]
     created_at = datetime.now(UTC).isoformat()
-    code = str(problem.get("reference_solution", ""))
-    result = execute_solution_code(problem, code)
     runtime = load_runtime_config(root)
     models = _effective_models(state, root)
     model_config = RuntimeConfig(
@@ -334,14 +332,10 @@ def _build_official_eval_run(
         models=models,
         env_file=runtime.env_file,
     )
-    completion = mock_completion(
-        config=model_config,
-        run_id=run_id,
-        model=model,
-        prompt=prompt,
-        content=code,
-        created_at=created_at,
-    )
+    completion = real_completion(config=model_config, model=model, prompt=prompt)
+    raw_response = completion.content
+    extracted_code = extract_function_code(raw_response, str(problem.get("signature", "")))
+    result = execute_model_code(problem, extracted_code)
     return {
         "run_id": run_id,
         "run_origin": RUN_ORIGIN_TA_OFFICIAL_EVAL,
@@ -360,8 +354,8 @@ def _build_official_eval_run(
         "created_at": created_at,
         "api_request_raw": completion.request_raw,
         "api_response_raw": completion.response_raw,
-        "raw_response": completion.content,
-        "extracted_code": code,
+        "raw_response": raw_response,
+        "extracted_code": extracted_code,
         "test_results": result["test_results"],
     }
 

@@ -58,7 +58,8 @@ from .package_names import assert_student_archive, assert_teacher_archive, stude
 from .packages import PackageError, read_package, write_package
 from .paths import default_student_root, ensure_student_tree
 from .prompting import prompt_template_id, render_official_prompt, render_official_prompt_parts
-from .model_client import mock_completion
+from .model_client import real_completion
+from .model_run_utils import execute_model_code, extract_function_code
 from .reset_utils import clear_relative_dirs, remove_file
 from .run_engine import RunEngineError, execute_problem
 from .storage import default_student_state, load_student_state, save_student_state
@@ -1639,13 +1640,11 @@ def _build_run_record(
     settings = _effective_settings(state, root)
     models = settings.get("models", DEFAULT_MODELS) or DEFAULT_MODELS
     model = requested_model.strip() or models[0]
-    result = execute_problem(problem)
     prompt = _official_prompt_for_problem(problem)
     prompt_parts = _official_prompt_parts_for_problem(problem)
     run_id = "run_" + uuid.uuid4().hex[:12]
     created_at = datetime.now(UTC).isoformat()
     base_url = _api_base_url(settings)
-    extracted_code = str(problem.get("reference_solution", ""))
     runtime = load_runtime_config(root)
     model_config = RuntimeConfig(
         base_url=base_url,
@@ -1653,14 +1652,13 @@ def _build_run_record(
         models=list(settings.get("models", DEFAULT_MODELS)),
         env_file=runtime.env_file,
     )
-    completion = mock_completion(
-        config=model_config,
-        run_id=run_id,
-        model=model,
-        prompt=prompt,
-        content=extracted_code,
-        created_at=created_at,
-    )
+    try:
+        completion = real_completion(config=model_config, model=model, prompt=prompt)
+    except RuntimeError as exc:
+        raise RunEngineError(str(exc), "model_api_error") from exc
+    raw_response = completion.content
+    extracted_code = extract_function_code(raw_response, str(problem.get("signature", "")))
+    result = execute_model_code(problem, extracted_code)
     return {
         "run_id": run_id,
         "run_origin": RUN_ORIGIN_STUDENT_SELF_TEST,
@@ -1678,7 +1676,7 @@ def _build_run_record(
         "package_selected": False,
         "api_request_raw": completion.request_raw,
         "api_response_raw": completion.response_raw,
-        "raw_response": extracted_code,
+        "raw_response": raw_response,
         "extracted_code": extracted_code,
         "test_results": result["test_results"],
     }

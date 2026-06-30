@@ -42,33 +42,6 @@ def build_request_raw(config: RuntimeConfig, model: str, prompt: str) -> dict[st
     }
 
 
-def mock_completion(
-    *, config: RuntimeConfig, run_id: str, model: str, prompt: str, content: str, created_at: str
-) -> ModelResult:
-    request_raw = build_request_raw(config, model, prompt)
-    response_raw = {
-        "schema_version": "codesetarena.api_response_raw.v1",
-        "provider_api": "local_mock_openai_chat_completions",
-        "id": run_id,
-        "object": "chat.completion",
-        "created_at": created_at,
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {
-            "prompt_tokens": None,
-            "completion_tokens": None,
-            "total_tokens": None,
-        },
-    }
-    return ModelResult(request_raw=request_raw, response_raw=response_raw, content=content)
-
-
 def real_completion(*, config: RuntimeConfig, model: str, prompt: str, timeout: float = 60.0) -> ModelResult:
     if not config.api_key:
         raise RuntimeError("API_KEY 未设置，无法执行真实模型测试")

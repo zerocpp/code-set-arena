@@ -261,6 +261,8 @@ def test_student_stage1_list_detail_and_run_results(tmp_path, monkeypatch):
     run_record = state["problems"][0]["run_records"][0]
     assert run_record["verdict"] == "passed"
     assert len(run_record["test_results"]) == 7
+    assert run_record["api_response_raw"]["provider_api"] == "test_real_openai_chat_completions"
+    assert run_record["api_response_raw"]["provider_api"] != "local_mock_openai_chat_completions"
     assert run_record["prompt_template_id"] == PROMPT_TEMPLATE_ID == "official_func_zh_v6"
     assert run_record["temperature"] == 0.0
     assert run_record["top_p"] == 1.0
@@ -431,6 +433,28 @@ def test_student_stage1_list_detail_and_run_results(tmp_path, monkeypatch):
     assert "参考答案执行结果未通过" in detail.text
     assert "校验通过" not in detail.text
     assert '<span class="status-pill ok">可运行</span>' not in detail.text
+
+
+def test_student_stage1_real_api_error_does_not_create_run(tmp_path, monkeypatch):
+    def failing_completion(*, config, model, prompt, timeout=60.0):
+        raise RuntimeError("真实模型请求失败：HTTP 400 model kfcvivo50 not found")
+
+    monkeypatch.setattr("codesetarena.student_app.real_completion", failing_completion, raising=False)
+    monkeypatch.setenv("MODELS", "kfcvivo50")
+    student_root = tmp_path / "student"
+    client = TestClient(create_student_app(student_root))
+    client.post("/settings", data={"models": ["kfcvivo50"]})
+    response = client.post("/stage1/problems", follow_redirects=False)
+    detail_path = response.headers["location"].split("?", 1)[0]
+    data = {**_valid_problem_data(), "model": "kfcvivo50"}
+    assert client.post(f"{detail_path}/validate", data=data, follow_redirects=False).status_code == 303
+
+    response = client.post(f"{detail_path}/run", data=data, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert load_student_state(student_root)["problems"][0]["run_records"] == []
+    page = client.get(response.headers["location"])
+    assert "真实模型请求失败：HTTP 400 model kfcvivo50 not found" in page.text
 
 
 def test_settings_save_api_key_without_echoing_secret(tmp_path, monkeypatch):

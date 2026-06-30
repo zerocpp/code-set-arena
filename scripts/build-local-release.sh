@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION_TAG="v7.1.3"
+VERSION_TAG="v7.1.4"
 DIST_ROOT="dist"
 DIST_DIR="${DIST_ROOT}/${VERSION_TAG}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.org/simple}"
@@ -32,11 +32,11 @@ build_image() {
 }
 
 if [[ ! -f "${STUDENT_MANUAL}" || ! -f "${TEACHER_MANUAL}" || ! -f "${STUDENT_CLI_MANUAL}" || ! -f "${TEACHER_CLI_MANUAL}" ]]; then
-  echo "missing PDF manuals under output/pdf; run scripts/generate_install_manuals_v713.py and scripts/generate_cli_manuals_v713.py first" >&2
+  echo "missing PDF manuals under output/pdf; run scripts/generate_install_manuals_v714.py and scripts/generate_cli_manuals_v714.py first" >&2
   exit 1
 fi
 if [[ ! -f "${RELEASE_NOTES_MD}" || ! -f "${RELEASE_NOTES_PDF}" ]]; then
-  echo "missing release notes; run scripts/generate_release_notes_v713.py first" >&2
+  echo "missing release notes; run scripts/generate_release_notes_v714.py first" >&2
   exit 1
 fi
 

@@ -87,6 +87,25 @@ def test_official_eval_cache_first_skips_existing_and_force_appends(tmp_path):
     assert all(run["run_origin"] == RUN_ORIGIN_TA_OFFICIAL_EVAL for run in state["eval_runs"])
 
 
+def test_official_eval_real_api_error_does_not_create_legal_runs(tmp_path, monkeypatch):
+    def failing_completion(*, config, model, prompt, timeout=60.0):
+        raise RuntimeError("真实模型请求失败：HTTP 400 model kfcvivo50 not found")
+
+    root = tmp_path / "teacher"
+    seed_demo_course(root, force=True)
+    state = load_teacher_state(root)
+    state["settings"]["models"] = ["kfcvivo50"]
+    existing = len(state.get("eval_runs", []))
+    monkeypatch.setattr("codesetarena.teacher_eval.real_completion", failing_completion, raising=False)
+
+    summary = run_official_eval_for_model(state, root, "kfcvivo50", mode="force")
+
+    assert summary["completed"] == 0
+    assert summary["failed"] == 50
+    assert len(state.get("eval_runs", [])) == existing
+    assert "kfcvivo50" not in eval_executed_models(state)
+
+
 def test_eval_result_defaults_to_latest_legal_run_and_allows_manual_selection(tmp_path):
     root = tmp_path / "teacher"
     seed_demo_course(root, force=True)

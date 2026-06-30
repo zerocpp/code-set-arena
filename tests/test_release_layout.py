@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_release_scripts_write_to_versioned_dist_directory():
     local_script = (ROOT / "scripts/build-local-release.sh").read_text(encoding="utf-8")
-    offline_script = (ROOT / "scripts/prepare_docker_offline_bundle_v713.py").read_text(
+    offline_script = (ROOT / "scripts/prepare_docker_offline_bundle_v714.py").read_text(
         encoding="utf-8"
     )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")

@@ -280,7 +280,11 @@ def student_stage1_run(
     if not _validation_view(problem)["ok"]:
         typer.echo("题目发生变更或尚未校验，请先校验参考答案", err=True)
         raise typer.Exit(1)
-    run = _build_run_record(problem, state, model, root)
+    try:
+        run = _build_run_record(problem, state, model, root)
+    except RunEngineError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     problem.setdefault("run_records", []).insert(0, run)
     save_student_state(root, state)
     _echo_json({"run_id": run["run_id"], "verdict": run["verdict"], "model": run["model"]})
@@ -588,7 +592,11 @@ def student_stage3_run(
     if not _validation_view(problem)["ok"]:
         typer.echo("题目发生变更或尚未校验，请先校验参考答案", err=True)
         raise typer.Exit(1)
-    run = _build_run_record(problem, state, model, root)
+    try:
+        run = _build_run_record(problem, state, model, root)
+    except RunEngineError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     problem.setdefault("run_records", []).insert(0, run)
     save_student_state(root, state)
     _echo_json({"run_id": run["run_id"], "verdict": run["verdict"], "model": run["model"]})

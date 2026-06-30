@@ -32,7 +32,7 @@ from .constants import (
     STAGE2,
     STAGE3,
 )
-from .model_client import mock_completion
+from .model_client import build_request_raw
 from .package_names import student_package_name, teacher_package_name
 from .packages import write_package
 from .paths import ensure_teacher_tree
@@ -327,14 +327,21 @@ def _student_run(
         models=state["settings"].get("models") or DEFAULT_MODELS,
         env_file=runtime.env_file,
     )
-    completion = mock_completion(
-        config=config,
-        run_id=run_id,
-        model=config.models[0],
-        prompt=prompt,
-        content=problem["reference_solution"],
-        created_at=created_at,
-    )
+    response_raw = {
+        "schema_version": "codesetarena.api_response_raw.v1",
+        "provider_api": "demo_seeded_openai_chat_completions",
+        "id": run_id,
+        "object": "chat.completion",
+        "created_at": created_at,
+        "model": config.models[0],
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": problem["reference_solution"]},
+                "finish_reason": "stop",
+            }
+        ],
+    }
     return {
         "run_id": run_id,
         "run_origin": RUN_ORIGIN_STUDENT_SELF_TEST,
@@ -350,9 +357,9 @@ def _student_run(
         "verdict": result["verdict"],
         "created_at": created_at,
         "package_selected": True,
-        "api_request_raw": completion.request_raw,
-        "api_response_raw": completion.response_raw,
-        "raw_response": completion.content,
+        "api_request_raw": build_request_raw(config, config.models[0], prompt),
+        "api_response_raw": response_raw,
+        "raw_response": problem["reference_solution"],
         "extracted_code": problem["reference_solution"],
         "test_results": result["test_results"],
     }

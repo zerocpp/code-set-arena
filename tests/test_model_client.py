@@ -60,3 +60,48 @@ def test_real_completion_reports_timeout(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="真实模型请求超时"):
         real_completion(config=config, model="deepseek-v4-flash", prompt="hello", timeout=0.01)
+
+
+def test_real_completion_sends_custom_model_name_to_provider(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "def solve(x: int) -> int:\n    return x\n",
+                            }
+                        }
+                    ]
+                }
+            ).encode()
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        captured["authorization"] = request.headers.get("Authorization")
+        return FakeResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    config = RuntimeConfig(
+        base_url="https://api.example.test",
+        api_key="sk-valid-local-key",
+        models=["kfcvivo50"],
+        env_file=None,
+    )
+
+    result = real_completion(config=config, model="kfcvivo50", prompt="hello", timeout=1.0)
+
+    assert captured["body"]["model"] == "kfcvivo50"
+    assert captured["authorization"] == "Bearer sk-valid-local-key"
+    assert result.request_raw["body"]["model"] == "kfcvivo50"
+    assert result.request_raw["headers"]["Authorization"] == "Bearer [REDACTED]"
+    assert result.response_raw["provider_api"] == "real_openai_chat_completions"

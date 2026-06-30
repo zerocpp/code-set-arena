@@ -33,7 +33,7 @@ from codesetarena.constants import (  # noqa: E402
     STAGE1,
 )
 from codesetarena.course_validation import validate_stage1_problem_package  # noqa: E402
-from codesetarena.model_client import mock_completion, real_completion  # noqa: E402
+from codesetarena.model_client import real_completion  # noqa: E402
 from codesetarena.package_names import student_package_name  # noqa: E402
 from codesetarena.packages import read_package, write_package  # noqa: E402
 from codesetarena.prompting import prompt_template_id, render_official_prompt, render_official_prompt_parts  # noqa: E402
@@ -46,7 +46,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--package-dir", type=Path, default=ROOT.parents[1] / "v7/mock/student-stage1")
     parser.add_argument("--model", default="qwen-coder-turbo")
-    parser.add_argument("--model-backend", choices=["real", "mock"], default="real")
     parser.add_argument("--timeout", type=float, default=120.0)
     args = parser.parse_args()
 
@@ -58,15 +57,15 @@ def main() -> int:
         models=[args.model],
         env_file=runtime.env_file,
     )
-    if args.model_backend == "real" and not config.api_key:
-        raise SystemExit("API_KEY is required when --model-backend real")
+    if not config.api_key:
+        raise SystemExit("API_KEY is required")
 
     report: dict[str, Any] = {
         "schema_version": "codesetarena.mock_student_stage1_completion.v1",
         "created_at": datetime.now(UTC).isoformat(),
         "package_dir": str(package_dir),
         "model": args.model,
-        "model_backend": args.model_backend,
+        "model_backend": "real",
         "archives": [],
         "summary": {
             "archive_count": 0,
@@ -86,7 +85,6 @@ def main() -> int:
             archive,
             config=config,
             model=args.model,
-            model_backend=args.model_backend,
             timeout=args.timeout,
             runs_path=package_dir / f"{args.model}-runs.jsonl",
         )
@@ -114,7 +112,6 @@ def _complete_archive(
     *,
     config: RuntimeConfig,
     model: str,
-    model_backend: str,
     timeout: float,
     runs_path: Path,
 ) -> dict[str, Any]:
@@ -146,7 +143,7 @@ def _complete_archive(
         if not needs_new_run:
             needs_new_run = not all(_run_record_matches_current_prompt(problem, run)[0] for run in problem["run_records"])
         if needs_new_run:
-            run = _build_model_run(problem, config=config, model=model, model_backend=model_backend, timeout=timeout)
+            run = _build_model_run(problem, config=config, model=model, timeout=timeout)
             problem["run_records"] = [run]
             _append_checkpoint(runs_path, str(problem.get("problem_id", "")), run)
             archive_report["new_model_runs"] += 1
@@ -240,7 +237,6 @@ def _build_model_run(
     *,
     config: RuntimeConfig,
     model: str,
-    model_backend: str,
     timeout: float,
 ) -> dict[str, Any]:
     prompt = render_official_prompt(
@@ -250,19 +246,8 @@ def _build_model_run(
     )
     created_at = datetime.now(UTC).isoformat()
     run_id = "run_qwen_" + uuid.uuid4().hex[:12]
-    if model_backend == "real":
-        completion = real_completion(config=config, model=model, prompt=prompt, timeout=timeout)
-        raw_response = completion.content
-    else:
-        raw_response = str(problem.get("reference_solution", ""))
-        completion = mock_completion(
-            config=config,
-            run_id=run_id,
-            model=model,
-            prompt=prompt,
-            content=raw_response,
-            created_at=created_at,
-        )
+    completion = real_completion(config=config, model=model, prompt=prompt, timeout=timeout)
+    raw_response = completion.content
     extracted_code = _extract_function_code(raw_response, str(problem.get("signature", "")))
     result = _execute_model_code(problem, extracted_code)
     return {
