@@ -26,7 +26,7 @@ CodeSetArena 包含学生端和助教端，两端数据相互独立，通过 `.t
 
 ## CodeSetArena 更新操作文档
 
-- [CodeSetArena 操作说明](docs/CodeSetArenaSystem/README.md)
+- [学生端升级操作指南](docs/CodeSetArenaSystem/CodeSetArena更新操作文档.md)
 
 ## 欢迎 Star
 

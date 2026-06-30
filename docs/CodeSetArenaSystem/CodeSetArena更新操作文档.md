@@ -196,15 +196,32 @@ codesetarena-student   v7.1.7
 
 ------
 
-## 六、浏览器访问
+## 六、启动新版本服务
 
-默认端口未修改时，在 Windows 浏览器访问：
+确认当前仍位于新版本目录：
 
-```text
-http://127.0.0.1:8000
+```bash
+pwd
 ```
 
-对应访问地址为：
+启动新版本学生端服务：
+
+```bash
+docker compose up -d
+```
+
+查看启动状态和日志：
+
+```bash
+docker compose ps
+docker compose logs --tail=100
+```
+
+------
+
+## 七、浏览器访问
+
+默认端口未修改时，在 Windows 浏览器访问：
 
 ```text
 http://127.0.0.1:8000
@@ -250,7 +267,7 @@ docker ps
 
 ```bash
 # 1. 停止旧版本服务
-cd ./code-set-arena/docs/CodeSetArenaSystem/codesetarena-student-local-v7.1.3-linux-amd64
+cd ~/workspace/codesetarena/Student/codesetarena-student-local-v7.1.3-linux-amd64
 
 docker compose ps
 docker compose down
@@ -260,13 +277,13 @@ docker compose ps
 docker rmi codesetarena-student:v7.1.3
 
 # 3. 准备新版本目录
-mkdir -p ./code-set-arena/docs/CodeSetArenaSystem/Online
-cd ./code-set-arena/docs/CodeSetArenaSystem/Online
+mkdir -p ~/workspace/Online
+cd ~/workspace/Online
 
 # 如未解压，先执行：
 # tar -xzf codesetarena-student-local-v7.1.7-linux-amd64.tar.gz
 
-cd ./code-set-arena/docs/CodeSetArenaSystem/Online/codesetarena-student-local-v7.1.7-linux-amd64
+cd ~/workspace/Online/codesetarena-student-local-v7.1.7-linux-amd64
 
 # 4. 检查 v7.1.7 发布包内容
 ls -lh
