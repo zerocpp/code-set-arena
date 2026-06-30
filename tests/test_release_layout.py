@@ -33,11 +33,13 @@ def test_local_release_packages_do_not_bundle_markdown_or_pdf_manuals():
     assert "--exclude='*.pdf'" in local_script
 
 
-def test_deploy_env_examples_use_placeholders_for_user_supplied_api_settings():
-    student_env = (ROOT / "deploy/student/.env.example").read_text(encoding="utf-8")
-    teacher_env = (ROOT / "deploy/teacher/.env.example").read_text(encoding="utf-8")
+def test_deploy_packages_do_not_ship_model_env_examples():
+    local_script = (ROOT / "scripts/build-local-release.sh").read_text(encoding="utf-8")
+    student_compose = (ROOT / "deploy/student/docker-compose.yml").read_text(encoding="utf-8")
+    teacher_compose = (ROOT / "deploy/teacher/docker-compose.yml").read_text(encoding="utf-8")
 
-    for payload in [student_env, teacher_env]:
-        assert "BASE_URL=https://your-model-service-base-url.example.com" in payload
-        assert "API_KEY=" in payload
-        assert "API_KEY=sk-" not in payload
+    assert not (ROOT / "deploy/student/.env.example").exists()
+    assert not (ROOT / "deploy/teacher/.env.example").exists()
+    assert ".env.example" not in local_script
+    assert "env_file:" not in student_compose
+    assert "env_file:" not in teacher_compose

@@ -14,8 +14,6 @@ from .constants import (
     AI_REVIEWER_NAME,
     AI_REVIEWER_STUDENT_NUMBER,
     AUTHOR_TESTS_PER_PROBLEM,
-    DEFAULT_BASE_URL,
-    DEFAULT_MODELS,
     KIND_PROBLEMS,
     KIND_REVIEW_ASSIGNMENT,
     KIND_REVIEW_FEEDBACK,
@@ -42,6 +40,9 @@ from .storage import append_audit, default_teacher_state, save_teacher_state
 from .teacher_eval import run_official_eval_for_model, write_official_eval_package
 from .versioning import snapshot_version
 
+DEMO_BASE_URL = "https://demo.codesetarena.invalid"
+DEMO_MODELS = ["demo-model-a", "demo-model-b"]
+
 
 def seed_demo_course(root: Path, *, force: bool = False) -> dict[str, int]:
     if root.exists() and any(root.iterdir()):
@@ -50,9 +51,9 @@ def seed_demo_course(root: Path, *, force: bool = False) -> dict[str, int]:
         shutil.rmtree(root)
     ensure_teacher_tree(root)
     state = default_teacher_state()
-    runtime = load_runtime_config(root)
-    state["settings"]["models"] = list(runtime.models or DEFAULT_MODELS)
-    state["settings"]["base_url"] = runtime.base_url or DEFAULT_BASE_URL
+    state["settings"]["configured"] = True
+    state["settings"]["models"] = list(DEMO_MODELS)
+    state["settings"]["base_url"] = DEMO_BASE_URL
     students = [_student(index) for index in range(1001, 1011)]
     all_problem_refs: list[tuple[str, int, dict[str, Any]]] = []
 
@@ -322,9 +323,9 @@ def _student_run(
     created_at = datetime.now(UTC).isoformat()
     runtime = load_runtime_config(root)
     config = RuntimeConfig(
-        base_url=state["settings"].get("base_url") or DEFAULT_BASE_URL,
+        base_url=state["settings"].get("base_url") or DEMO_BASE_URL,
         api_key=runtime.api_key,
-        models=state["settings"].get("models") or DEFAULT_MODELS,
+        models=state["settings"].get("models") or DEMO_MODELS,
         env_file=runtime.env_file,
     )
     response_raw = {

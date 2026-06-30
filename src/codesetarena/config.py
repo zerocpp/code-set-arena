@@ -1,14 +1,11 @@
-"""Runtime configuration loaded from environment variables and .env files."""
+"""Runtime configuration saved by the local CodeSetArena settings pages."""
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
-from .constants import DEFAULT_BASE_URL, DEFAULT_MODELS
-
-ENV_FILE_ENV = "CODESETARENA_ENV_FILE"
 API_KEY_MIN_LENGTH = 8
 MASKED_API_KEY = "******"
 
@@ -23,7 +20,7 @@ class RuntimeConfig:
 
     @property
     def default_model(self) -> str:
-        return self.models[0] if self.models else DEFAULT_MODELS[0]
+        return self.models[0] if self.models else ""
 
     @property
     def api_key_set(self) -> bool:
@@ -37,8 +34,6 @@ class RuntimeConfig:
             return self.api_key_source_label
         if self.env_file is not None:
             return str(self.env_file)
-        if os.environ.get("API_KEY"):
-            return "环境变量 API_KEY"
         return "运行时配置"
 
 
@@ -48,7 +43,7 @@ def parse_models(raw: str | list[str] | None) -> list[str]:
     else:
         parsed = [model.strip() for model in str(raw or "").replace("\n", "|").split("|")]
         parsed = [model for model in parsed if model]
-    return parsed or list(DEFAULT_MODELS)
+    return parsed
 
 
 def validate_api_key(api_key: str) -> None:
@@ -57,6 +52,20 @@ def validate_api_key(api_key: str) -> None:
         return
     if not value.startswith("sk-") or len(value) < API_KEY_MIN_LENGTH:
         raise ValueError("API Key 格式不合法：应以 sk- 开头，且至少 8 个字符")
+
+
+def validate_base_url(base_url: str) -> None:
+    value = base_url.strip()
+    if not value:
+        raise ValueError("Base URL 不能为空")
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Base URL 格式不合法，请填写 http:// 或 https:// 开头的模型服务地址")
+
+
+def require_models(models: list[str]) -> None:
+    if not models:
+        raise ValueError("模型列表不能为空，请至少填写一个模型名称")
 
 
 def update_local_api_key(
@@ -91,95 +100,27 @@ def update_local_api_key(
 
 
 def load_runtime_config(data_dir: Path | None = None, env_file: Path | None = None) -> RuntimeConfig:
-    selected_env = _select_env_file(data_dir, env_file)
+    del env_file
+    selected_env = data_dir / ".env" if data_dir is not None and (data_dir / ".env").exists() else None
     file_values = _read_env_file(selected_env) if selected_env else {}
-    file_overrides_environment = _file_overrides_environment(data_dir, env_file, selected_env)
-    base_url = (
-        _choose_config_value("BASE_URL", file_values, DEFAULT_BASE_URL, file_overrides_environment)
-        or DEFAULT_BASE_URL
-    ).rstrip("/")
-    api_key = _choose_config_value("API_KEY", file_values, "", file_overrides_environment).strip()
-    models = parse_models(
-        _choose_config_value("MODELS", file_values, DEFAULT_MODELS, file_overrides_environment)
-    )
+    base_url = ""
+    api_key = file_values.get("API_KEY", "").strip()
+    models: list[str] = []
     return RuntimeConfig(
         base_url=base_url,
         api_key=api_key,
         models=models,
         env_file=selected_env,
-        api_key_source_label=_config_source_label(
-            "API_KEY", file_values, selected_env, file_overrides_environment
-        ),
+        api_key_source_label=str(selected_env) if selected_env is not None and api_key else None,
     )
 
 
 def settings_are_configured(settings: dict[str, object] | None) -> bool:
     if not isinstance(settings, dict):
         return False
-    base_url = str(settings.get("base_url") or "")
+    base_url = str(settings.get("base_url") or "").strip()
     models = settings.get("models") or []
-    has_non_default_values = base_url not in {"", DEFAULT_BASE_URL} or (
-        isinstance(models, list) and models != DEFAULT_MODELS
-    )
-    if "configured" in settings:
-        return bool(settings.get("configured")) or has_non_default_values
-    return has_non_default_values
-
-
-def _choose_config_value(
-    name: str,
-    file_values: dict[str, str],
-    default: str | list[str],
-    file_overrides_environment: bool,
-) -> str | list[str]:
-    if file_overrides_environment and name in file_values:
-        return file_values[name]
-    env_value = os.environ.get(name)
-    if env_value is not None:
-        return env_value
-    if name in file_values:
-        return file_values[name]
-    return default
-
-
-def _config_source_label(
-    name: str,
-    file_values: dict[str, str],
-    selected_env: Path | None,
-    file_overrides_environment: bool,
-) -> str | None:
-    if file_overrides_environment and name in file_values:
-        return str(selected_env) if selected_env is not None and file_values[name].strip() else None
-    if os.environ.get(name):
-        return f"环境变量 {name}"
-    if name in file_values:
-        return str(selected_env) if selected_env is not None and file_values[name].strip() else None
-    return None
-
-
-def _file_overrides_environment(
-    data_dir: Path | None, env_file: Path | None, selected_env: Path | None
-) -> bool:
-    if selected_env is None:
-        return False
-    if env_file is not None or os.environ.get(ENV_FILE_ENV):
-        return True
-    return data_dir is not None and selected_env == data_dir / ".env"
-
-
-def _select_env_file(data_dir: Path | None, env_file: Path | None) -> Path | None:
-    explicit = env_file or (Path(os.environ[ENV_FILE_ENV]).expanduser() if os.environ.get(ENV_FILE_ENV) else None)
-    if explicit is not None:
-        return explicit if explicit.exists() else None
-    if data_dir is not None:
-        data_env = data_dir / ".env"
-        if data_env.exists():
-            return data_env
-    for root in [Path.cwd(), *Path.cwd().parents]:
-        candidate = root / ".env"
-        if candidate.exists():
-            return candidate
-    return None
+    return bool(settings.get("configured")) and bool(base_url) and isinstance(models, list) and bool(models)
 
 
 def _read_env_file(path: Path) -> dict[str, str]:

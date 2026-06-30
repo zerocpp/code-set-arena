@@ -11,7 +11,14 @@ from typing import Any
 import typer
 import uvicorn
 
-from .config import load_runtime_config, parse_models, update_local_api_key
+from .config import (
+    load_runtime_config,
+    parse_models,
+    require_models,
+    update_local_api_key,
+    validate_api_key,
+    validate_base_url,
+)
 from .course_validation import (
     validate_author_response,
     validate_review_assignment_payload,
@@ -87,6 +94,7 @@ from .teacher_eval import (
     write_official_eval_package,
 )
 from .teacher_assignments import build_review_assignment_packages, build_review_feedback_packages
+from .teacher_version_gate import assert_student_package_version_allowed, normalize_allowed_student_versions
 
 app = typer.Typer(help=f"{APP_NAME} local course system")
 student_app = typer.Typer(help="Student-side commands")
@@ -162,19 +170,25 @@ def student_settings_set(
 ) -> None:
     root = ensure_student_tree(data_dir)
     state = load_student_state(root)
-    runtime = load_runtime_config(root)
     student_number = student_number.strip()
     name = name.strip()
     class_id = class_id.strip()
     try:
-        base_url = base_url.strip() or runtime.base_url
-        parsed_models = parse_models(models or runtime.models)
+        if clear_api_key:
+            raise ValueError("API Key 不能为空，v7.1.6 起不支持通过 settings set 清空 API Key")
+        base_url = base_url.strip()
+        parsed_models = parse_models(models)
+        validate_base_url(base_url)
+        if not api_key.strip():
+            raise ValueError("API Key 不能为空")
+        validate_api_key(api_key)
+        require_models(parsed_models)
         ensure_max_length("student_number", student_number)
         ensure_max_length("person_name", name)
         ensure_max_length("class_id", class_id)
         ensure_max_length("base_url", base_url)
         ensure_list_max_length("model_name", parsed_models)
-        update_local_api_key(root, api_key, clear=clear_api_key)
+        update_local_api_key(root, api_key)
         runtime = load_runtime_config(root)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -289,6 +303,9 @@ def student_stage1_run(
     problem.setdefault("run_records", []).insert(0, run)
     save_student_state(root, state)
     _echo_json({"run_id": run["run_id"], "verdict": run["verdict"], "model": run["model"]})
+    if run.get("api_status") == "failed":
+        typer.echo(str(run.get("api_error", "模型 API 请求失败")), err=True)
+        raise typer.Exit(1)
 
 
 @student_stage1_app.command("select-runs")
@@ -733,19 +750,29 @@ def teacher_settings_set(
     api_key: str = typer.Option("", "--api-key"),
     clear_api_key: bool = typer.Option(False, "--clear-api-key"),
     models: str = typer.Option("", "--models"),
+    allowed_student_versions: str = typer.Option("", "--allowed-student-versions"),
     data_dir: Path = typer.Option(default_teacher_root(), "--data-dir"),
 ) -> None:
     root = ensure_teacher_tree(data_dir)
     state = load_teacher_state(root)
-    runtime = load_runtime_config(root)
     course_name = course_name.strip() or "CodeSetArena v7"
     try:
-        base_url = base_url.strip() or runtime.base_url
-        parsed_models = parse_models(models or runtime.models)
+        if clear_api_key:
+            raise ValueError("API Key 不能为空，v7.1.6 起不支持通过 settings set 清空 API Key")
+        base_url = base_url.strip()
+        parsed_models = parse_models(models)
+        validate_base_url(base_url)
+        if not api_key.strip():
+            raise ValueError("API Key 不能为空")
+        validate_api_key(api_key)
+        require_models(parsed_models)
+        allowed_versions = normalize_allowed_student_versions(
+            allowed_student_versions or state.get("settings", {}).get("allowed_student_versions", [])
+        )
         ensure_max_length("course_name", course_name)
         ensure_max_length("base_url", base_url)
         ensure_list_max_length("model_name", parsed_models)
-        update_local_api_key(root, api_key, clear=clear_api_key)
+        update_local_api_key(root, api_key)
         runtime = load_runtime_config(root)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -756,6 +783,8 @@ def teacher_settings_set(
         "api_key_set": runtime.api_key_set,
         "api_key_source": runtime.api_key_source,
         "models": parsed_models,
+        "random_seed": state.get("settings", {}).get("random_seed", 42),
+        "allowed_student_versions": allowed_versions,
     }
     append_audit(state, "settings.saved", "teacher settings updated by cli")
     save_teacher_state(root, state)
@@ -777,6 +806,7 @@ def teacher_stage1_upload(
     state = load_teacher_state(root)
     manifest, payload = read_package(file, root / "stage1-submissions/imports" / file.stem)
     _teacher_assert_manifest(manifest, ROLE_STUDENT, STAGE1, KIND_PROBLEMS)
+    assert_student_package_version_allowed(manifest, state.get("settings", {}))
     student = payload.get("student", {})
     student_number = student.get("student_number", "")
     assert_student_archive(file, student_number, STAGE1, KIND_PROBLEMS)
@@ -825,6 +855,7 @@ def teacher_stage2_upload_reviews(
     state = load_teacher_state(root)
     manifest, payload = read_package(file)
     _teacher_assert_manifest(manifest, ROLE_STUDENT, STAGE2, KIND_REVIEWS)
+    assert_student_package_version_allowed(manifest, state.get("settings", {}))
     student = payload.get("student", {})
     reviewer = student.get("student_number", "")
     assert_student_archive(file, reviewer, STAGE2, KIND_REVIEWS)
@@ -863,6 +894,7 @@ def teacher_stage3_upload_revision(
     state = load_teacher_state(root)
     manifest, payload = read_package(file, root / "stage3-revisions/imports" / file.stem)
     _teacher_assert_manifest(manifest, ROLE_STUDENT, STAGE3, KIND_REVISION)
+    assert_student_package_version_allowed(manifest, state.get("settings", {}))
     student = payload.get("student", {})
     student_number = student.get("student_number", "")
     assert_student_archive(file, student_number, STAGE3, KIND_REVISION)

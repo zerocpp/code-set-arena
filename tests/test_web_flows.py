@@ -63,10 +63,7 @@ def test_student_stage1_export_and_directory_isolation(tmp_path):
     assert not (teacher_root / "stage1-original").exists()
 
     client = TestClient(create_student_app(student_root))
-    client.post(
-        "/settings",
-        data={"student_number": "2026000001", "name": "Alice", "class_id": "A"},
-    )
+    client.post("/student-info", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
     for _ in range(PROBLEMS_PER_STUDENT + 1):
         _create_valid_selected_problem(client, student_root)
     response = client.post("/stage1/package", follow_redirects=False)
@@ -435,15 +432,21 @@ def test_student_stage1_list_detail_and_run_results(tmp_path, monkeypatch):
     assert '<span class="status-pill ok">可运行</span>' not in detail.text
 
 
-def test_student_stage1_real_api_error_does_not_create_run(tmp_path, monkeypatch):
+def test_student_stage1_real_api_error_creates_failed_unselectable_run(tmp_path, monkeypatch):
     def failing_completion(*, config, model, prompt, timeout=60.0):
         raise RuntimeError("真实模型请求失败：HTTP 400 model kfcvivo50 not found")
 
     monkeypatch.setattr("codesetarena.student_app.real_completion", failing_completion, raising=False)
-    monkeypatch.setenv("MODELS", "kfcvivo50")
     student_root = tmp_path / "student"
     client = TestClient(create_student_app(student_root))
-    client.post("/settings", data={"models": ["kfcvivo50"]})
+    client.post(
+        "/settings",
+        data={
+            "base_url": "https://api.example.test",
+            "api_key": "sk-student-secret",
+            "models": ["kfcvivo50"],
+        },
+    )
     response = client.post("/stage1/problems", follow_redirects=False)
     detail_path = response.headers["location"].split("?", 1)[0]
     data = {**_valid_problem_data(), "model": "kfcvivo50"}
@@ -452,9 +455,44 @@ def test_student_stage1_real_api_error_does_not_create_run(tmp_path, monkeypatch
     response = client.post(f"{detail_path}/run", data=data, follow_redirects=False)
 
     assert response.status_code == 303
-    assert load_student_state(student_root)["problems"][0]["run_records"] == []
+    run_records = load_student_state(student_root)["problems"][0]["run_records"]
+    assert len(run_records) == 1
+    run = run_records[0]
+    assert run["verdict"] == "api_error"
+    assert run["api_status"] == "failed"
+    assert run["package_selected"] is False
+    assert "真实模型请求失败：HTTP 400 model kfcvivo50 not found" in run["api_error"]
     page = client.get(response.headers["location"])
     assert "真实模型请求失败：HTTP 400 model kfcvivo50 not found" in page.text
+    assert "API 请求状态" in page.text
+    assert "<span" in page.text and "无效" in page.text
+
+
+def test_student_run_record_content_hash_mismatch_invalidates_selection(tmp_path):
+    student_root = tmp_path / "student"
+    client = TestClient(create_student_app(student_root))
+    client.post(
+        "/settings",
+        data={
+            "base_url": "https://api.example.test",
+            "api_key": "sk-student-secret",
+            "models": ["deepseek-v4-flash"],
+        },
+    )
+    detail_path = _create_valid_selected_problem(client, student_root)
+    state = load_student_state(student_root)
+    problem = state["problems"][0]
+    assert problem["run_records"][0]["package_selected"] is True
+
+    data = {**_valid_problem_data(), "author_expected_0": json.dumps(999)}
+    response = client.post(f"{detail_path}/save", data=data, follow_redirects=False)
+
+    assert response.status_code == 303
+    changed = load_student_state(student_root)["problems"][0]
+    assert changed["validation"]["status"] == "stale"
+    assert changed["run_records"][0]["package_selected"] is False
+    page = client.get(response.headers["location"])
+    assert "已失效" in page.text
 
 
 def test_settings_save_api_key_without_echoing_secret(tmp_path, monkeypatch):
@@ -464,16 +502,16 @@ def test_settings_save_api_key_without_echoing_secret(tmp_path, monkeypatch):
     student_root = tmp_path / "student"
     student = TestClient(create_student_app(student_root))
     response = student.get("/settings")
-    assert "https://env.example/v1" in response.text
-    assert 'value="deepseek-v4-flash"' in response.text
-    assert 'value="deepseek-v4-pro"' in response.text
+    assert "https://env.example/v1" not in response.text
+    assert 'value="deepseek-v4-flash"' not in response.text
+    assert 'value="deepseek-v4-pro"' not in response.text
     assert "data-add-model" in response.text
     assert "第一行是默认模型" not in response.text
     assert "API Key (API_KEY)" not in response.text
     assert "清空本端" not in response.text
     assert 'name="student_number"' not in response.text
     assert 'name="class_id"' not in response.text
-    assert 'name="api_key" value="******"' in response.text
+    assert 'name="api_key" value=""' in response.text
     assert "sk-env-secret" not in response.text
 
     response = student.post(
@@ -523,12 +561,12 @@ def test_settings_save_api_key_without_echoing_secret(tmp_path, monkeypatch):
     teacher_root = tmp_path / "teacher"
     teacher = TestClient(create_teacher_app(teacher_root))
     response = teacher.get("/settings")
-    assert "https://env.example/v1" in response.text
-    assert 'value="deepseek-v4-flash"' in response.text
-    assert 'value="deepseek-v4-pro"' in response.text
+    assert "https://env.example/v1" not in response.text
+    assert 'value="deepseek-v4-flash"' not in response.text
+    assert 'value="deepseek-v4-pro"' not in response.text
     assert "第一行是默认模型" not in response.text
     assert "API Key (API_KEY)" not in response.text
-    assert 'name="api_key" value="******"' in response.text
+    assert 'name="api_key" value=""' in response.text
     assert "sk-env-secret" not in response.text
 
     response = teacher.post(
@@ -638,7 +676,7 @@ def test_student_info_global_panel_save_and_import_syncs(tmp_path):
 def test_student_stage1_package_selection_autosaves_partial_valid_set(tmp_path):
     student_root = tmp_path / "student"
     client = TestClient(create_student_app(student_root))
-    client.post("/settings", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
+    client.post("/student-info", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
     detail_path = _create_valid_selected_problem(client, student_root)
     problem_id = detail_path.rsplit("/", 1)[1]
 
@@ -695,6 +733,8 @@ def test_settings_api_key_save_keep_clear_and_invalid(tmp_path, monkeypatch):
             "name": "Alice",
             "class_id": "A",
             "api_key": "bad-key",
+            "base_url": "https://example.test/v1",
+            "models": ["model-a"],
         },
         follow_redirects=False,
     )
@@ -709,6 +749,8 @@ def test_settings_api_key_save_keep_clear_and_invalid(tmp_path, monkeypatch):
             "name": "Alice",
             "class_id": "A",
             "api_key": "sk-local-student-key",
+            "base_url": "https://example.test/v1",
+            "models": ["model-a"],
         },
         follow_redirects=False,
     )
@@ -728,6 +770,8 @@ def test_settings_api_key_save_keep_clear_and_invalid(tmp_path, monkeypatch):
             "name": "Alice",
             "class_id": "A",
             "api_key": "******",
+            "base_url": "https://example.test/v1",
+            "models": ["model-a"],
         },
         follow_redirects=False,
     )
@@ -741,18 +785,21 @@ def test_settings_api_key_save_keep_clear_and_invalid(tmp_path, monkeypatch):
             "name": "Alice",
             "class_id": "A",
             "api_key": "",
+            "base_url": "https://example.test/v1",
+            "models": ["model-a"],
         },
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert load_student_state(student_root)["settings"]["api_key_set"] is False
-    assert (student_root / ".env").read_text(encoding="utf-8") == "API_KEY=\n"
+    assert "error=" in response.headers["location"]
+    assert load_student_state(student_root)["settings"]["api_key_set"] is True
+    assert "sk-local-student-key" in (student_root / ".env").read_text(encoding="utf-8")
 
     teacher_root = tmp_path / "teacher"
     teacher = TestClient(create_teacher_app(teacher_root))
     response = teacher.post(
         "/settings",
-        data={"course_name": "Course", "api_key": "bad-key"},
+        data={"course_name": "Course", "api_key": "bad-key", "base_url": "https://example.test/v1", "models": ["judge-a"]},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -761,7 +808,7 @@ def test_settings_api_key_save_keep_clear_and_invalid(tmp_path, monkeypatch):
 
     response = teacher.post(
         "/settings",
-        data={"course_name": "Course", "api_key": "sk-local-teacher-key"},
+        data={"course_name": "Course", "api_key": "sk-local-teacher-key", "base_url": "https://example.test/v1", "models": ["judge-a"]},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -770,17 +817,18 @@ def test_settings_api_key_save_keep_clear_and_invalid(tmp_path, monkeypatch):
 
     response = teacher.post(
         "/settings",
-        data={"course_name": "Course", "api_key": ""},
+        data={"course_name": "Course", "api_key": "", "base_url": "https://example.test/v1", "models": ["judge-a"]},
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert load_teacher_state(teacher_root)["settings"]["api_key_set"] is False
+    assert "error=" in response.headers["location"]
+    assert load_teacher_state(teacher_root)["settings"]["api_key_set"] is True
 
 
 def test_form_controls_have_length_limits_and_help_tooltips(tmp_path):
     student_root = tmp_path / "student"
     student = TestClient(create_student_app(student_root))
-    student.post("/settings", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
+    student.post("/student-info", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
 
     _assert_controls_are_guided(student.get("/settings").text)
 
@@ -810,7 +858,7 @@ def test_form_length_limits_are_enforced(tmp_path):
     student = TestClient(create_student_app(student_root))
 
     response = student.post(
-        "/settings",
+        "/student-info",
         data={
             "student_number": "2" * (FORM_LIMITS["student_number"] + 1),
             "name": "Alice",
@@ -821,7 +869,8 @@ def test_form_length_limits_are_enforced(tmp_path):
     assert response.status_code == 303
     assert "error=" in response.headers["location"]
 
-    student.post("/settings", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
+    _configure_student_model_settings(student)
+    student.post("/student-info", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
     response = student.post("/stage1/problems", follow_redirects=False)
     detail_path = response.headers["location"].split("?", 1)[0]
     too_long_problem = {**_valid_problem_data(), "statement": "x" * (FORM_LIMITS["problem_statement"] + 1)}
@@ -899,7 +948,13 @@ def test_teacher_settings_random_seed_default_and_save(tmp_path):
 
     response = teacher.post(
         "/settings",
-        data={"course_name": "CodeSetArena v7", "random_seed": "123", "models": ["model-a"]},
+        data={
+            "course_name": "CodeSetArena v7",
+            "random_seed": "123",
+            "base_url": "https://api.example.test",
+            "api_key": "sk-teacher-secret",
+            "models": ["model-a"],
+        },
         follow_redirects=False,
     )
 
@@ -949,7 +1004,13 @@ def test_teacher_stage2_assignment_is_seeded_and_repeatable(tmp_path):
 
     teacher.post(
         "/settings",
-        data={"course_name": "CodeSetArena v7", "random_seed": "7", "models": ["deepseek-v4-flash"]},
+        data={
+            "course_name": "CodeSetArena v7",
+            "random_seed": "7",
+            "base_url": "https://api.example.test",
+            "api_key": "sk-teacher-secret",
+            "models": ["deepseek-v4-flash"],
+        },
     )
     first = teacher.post("/stage2/assign", data={"reviews_per_problem": "3"}, follow_redirects=False)
     assert first.status_code == 303
@@ -965,7 +1026,13 @@ def test_teacher_stage2_assignment_is_seeded_and_repeatable(tmp_path):
 
     teacher.post(
         "/settings",
-        data={"course_name": "CodeSetArena v7", "random_seed": "8", "models": ["deepseek-v4-flash"]},
+        data={
+            "course_name": "CodeSetArena v7",
+            "random_seed": "8",
+            "base_url": "https://api.example.test",
+            "api_key": "sk-teacher-secret",
+            "models": ["deepseek-v4-flash"],
+        },
     )
     third = teacher.post("/stage2/assign", data={"reviews_per_problem": "3"}, follow_redirects=False)
     assert third.status_code == 303
@@ -982,7 +1049,13 @@ def test_teacher_stage2_assignment_balances_human_reviewer_load(tmp_path):
 
     teacher.post(
         "/settings",
-        data={"course_name": "CodeSetArena v7", "random_seed": "42", "models": ["deepseek-v4-flash"]},
+        data={
+            "course_name": "CodeSetArena v7",
+            "random_seed": "42",
+            "base_url": "https://api.example.test",
+            "api_key": "sk-teacher-secret",
+            "models": ["deepseek-v4-flash"],
+        },
     )
     response = teacher.post("/stage2/assign", data={"reviews_per_problem": "4"}, follow_redirects=False)
 
@@ -1013,7 +1086,8 @@ def test_teacher_stage2_assignment_balances_human_reviewer_load(tmp_path):
 def test_student_validation_reports_python_environment_error(tmp_path):
     student_root = tmp_path / "student"
     student = TestClient(create_student_app(student_root))
-    student.post("/settings", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
+    _configure_student_model_settings(student)
+    student.post("/student-info", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
     response = student.post("/stage1/problems", follow_redirects=False)
     detail_path = response.headers["location"].split("?", 1)[0]
 
@@ -1279,6 +1353,16 @@ def test_teacher_student_course_roundtrip(tmp_path):
     assert "修订题目" in revision_detail
     assert "回应建议" in revision_detail
     assert "原始 JSON" in revision_detail
+    teacher.post(
+        "/settings",
+        data={
+            "course_name": "CodeSetArena v7",
+            "random_seed": "42",
+            "base_url": "https://api.example.test",
+            "api_key": "sk-teacher-secret",
+            "models": ["deepseek-v4-flash"],
+        },
+    )
     response = teacher.post("/eval/run", follow_redirects=False)
     assert response.status_code == 303
     eval_archive = teacher_root / "ta-eval/runs/teacher-stage4-official-eval.tar.gz"
@@ -1467,7 +1551,7 @@ def test_teacher_student_joint_syncs_imported_student_info_and_rejects_wrong_rol
 
     student_a_root = tmp_path / "student-a"
     student_a = TestClient(create_student_app(student_a_root))
-    student_a.post("/settings", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
+    student_a.post("/student-info", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
     response = _upload_response(student_a, "/stage2/import", assignment_b)
     assert response.status_code == 303
     assert "notice=" in response.headers["location"]
@@ -1505,7 +1589,7 @@ def test_teacher_student_joint_syncs_imported_student_info_and_rejects_wrong_rol
 def test_student_rejects_incomplete_stage2_review_assignment(tmp_path):
     student_root = tmp_path / "student"
     student = TestClient(create_student_app(student_root))
-    student.post("/settings", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
+    student.post("/student-info", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
     assignment = _make_incomplete_review_assignment_package(tmp_path, "2026000001")
 
     response = _upload_response(student, "/stage2/import", assignment)
@@ -1842,7 +1926,8 @@ def _seed_teacher_reset_state(root: Path) -> dict:
 def _prepare_student_with_five_problems(
     client: TestClient, root: Path, student_number: str, name: str
 ) -> None:
-    client.post("/settings", data={"student_number": student_number, "name": name, "class_id": "A"})
+    _configure_student_model_settings(client)
+    client.post("/student-info", data={"student_number": student_number, "name": name, "class_id": "A"})
     for _ in range(PROBLEMS_PER_STUDENT):
         _create_valid_selected_problem(client, root)
     _select_stage1_problem_package(client, root)
@@ -1867,6 +1952,7 @@ def _valid_problem_data() -> dict[str, str]:
 
 
 def _create_valid_selected_problem(client: TestClient, root: Path | None) -> str:
+    _configure_student_model_settings(client)
     response = client.post("/stage1/problems", follow_redirects=False)
     assert response.status_code == 303
     detail_path = response.headers["location"].split("?", 1)[0]
@@ -1887,6 +1973,19 @@ def _create_valid_selected_problem(client: TestClient, root: Path | None) -> str
     )
     assert response.status_code == 303
     return detail_path
+
+
+def _configure_student_model_settings(client: TestClient) -> None:
+    response = client.post(
+        "/settings",
+        data={
+            "base_url": "https://api.example.test",
+            "api_key": "sk-student-secret",
+            "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
 
 
 def _select_stage1_problem_package(client: TestClient, root: Path) -> None:

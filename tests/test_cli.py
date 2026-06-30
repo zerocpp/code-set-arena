@@ -21,7 +21,7 @@ def test_cli_uses_code_set_arena_commands(tmp_path):
     assert "initialized teacher workspace" in result.stdout
 
 
-def test_cli_student_settings_reads_env_without_persisting_secret(tmp_path, monkeypatch):
+def test_cli_student_settings_requires_explicit_model_config_without_persisting_secret(tmp_path, monkeypatch):
     monkeypatch.setenv("API_KEY", "sk-cli-secret")
     monkeypatch.setenv("BASE_URL", "https://api.deepseek.com")
     monkeypatch.setenv("MODELS", "deepseek-v4-flash|deepseek-v4-pro")
@@ -39,6 +39,12 @@ def test_cli_student_settings_reads_env_without_persisting_secret(tmp_path, monk
             "2026000001",
             "--name",
             "Alice",
+            "--base-url",
+            "https://api.example.test",
+            "--api-key",
+            "sk-cli-secret",
+            "--models",
+            "deepseek-v4-flash|deepseek-v4-pro",
         ],
     )
     assert result.exit_code == 0, result.stdout
@@ -49,8 +55,7 @@ def test_cli_student_settings_reads_env_without_persisting_secret(tmp_path, monk
     assert "sk-cli-secret" not in (data_dir / "student-state.json").read_text(encoding="utf-8")
 
 
-def test_cli_student_stage1_full_export(tmp_path, monkeypatch):
-    monkeypatch.setenv("API_KEY", "sk-cli-secret")
+def test_cli_student_stage1_full_export(tmp_path):
     runner = CliRunner()
     data_dir = tmp_path / "student"
     result = runner.invoke(
@@ -65,6 +70,12 @@ def test_cli_student_stage1_full_export(tmp_path, monkeypatch):
             "2026000001",
             "--name",
             "Alice",
+            "--base-url",
+            "https://api.example.test",
+            "--api-key",
+            "sk-cli-secret",
+            "--models",
+            "deepseek-v4-flash|deepseek-v4-pro",
         ],
     )
     assert result.exit_code == 0, result.stdout
@@ -109,8 +120,7 @@ def test_cli_student_stage1_full_export(tmp_path, monkeypatch):
     assert "API_KEY" not in payload_json
 
 
-def test_cli_student_stage1_list_delete_and_stale_run_guard(tmp_path, monkeypatch):
-    monkeypatch.setenv("API_KEY", "sk-cli-secret")
+def test_cli_student_stage1_list_delete_and_stale_run_guard(tmp_path):
     runner = CliRunner()
     data_dir = tmp_path / "student"
     result = runner.invoke(
@@ -125,6 +135,12 @@ def test_cli_student_stage1_list_delete_and_stale_run_guard(tmp_path, monkeypatc
             "2026000001",
             "--name",
             "Alice",
+            "--base-url",
+            "https://api.example.test",
+            "--api-key",
+            "sk-cli-secret",
+            "--models",
+            "deepseek-v4-flash|deepseek-v4-pro",
         ],
     )
     assert result.exit_code == 0, result.stdout
@@ -182,7 +198,6 @@ def test_cli_student_stage1_run_reports_real_api_error(tmp_path, monkeypatch):
         raise RuntimeError("真实模型请求失败：HTTP 400 model kfcvivo50 not found")
 
     monkeypatch.setattr("codesetarena.student_app.real_completion", failing_completion, raising=False)
-    monkeypatch.setenv("MODELS", "kfcvivo50")
     runner = CliRunner()
     data_dir = tmp_path / "student"
     result = runner.invoke(
@@ -199,6 +214,10 @@ def test_cli_student_stage1_run_reports_real_api_error(tmp_path, monkeypatch):
             "Alice",
             "--models",
             "kfcvivo50",
+            "--base-url",
+            "https://api.example.test",
+            "--api-key",
+            "sk-cli-secret",
         ],
     )
     assert result.exit_code == 0, result.stdout
@@ -227,8 +246,9 @@ def test_cli_student_stage1_run_reports_real_api_error(tmp_path, monkeypatch):
     )
 
     assert result.exit_code != 0
+    state = load_student_state(data_dir)
+    assert state["problems"][0]["run_records"][0]["api_status"] == "failed"
     assert "真实模型请求失败：HTTP 400 model kfcvivo50 not found" in result.output
-    assert load_student_state(data_dir)["problems"][0]["run_records"] == []
 
 
 def test_cli_student_three_stage_import_export_flow(tmp_path, monkeypatch):
@@ -445,6 +465,12 @@ def _make_cli_stage1_package(
             name,
             "--class-id",
             "A",
+            "--base-url",
+            "https://api.example.test",
+            "--api-key",
+            "sk-cli-secret",
+            "--models",
+            "deepseek-v4-flash|deepseek-v4-pro",
         ],
     )
     assert result.exit_code == 0, result.stdout

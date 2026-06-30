@@ -275,7 +275,7 @@ def test_teacher_eval_run_controls_use_settings_models_in_one_row(tmp_path):
     assert html.index('name="model"') < html.index('name="mode"') < html.index("开始正式评测")
 
 
-def test_teacher_eval_run_controls_use_runtime_models_when_state_models_empty(tmp_path, monkeypatch):
+def test_teacher_eval_run_controls_ignore_environment_models_when_state_models_empty(tmp_path, monkeypatch):
     root = tmp_path / "teacher"
     state = load_teacher_state(root)
     state["settings"]["models"] = []
@@ -285,8 +285,8 @@ def test_teacher_eval_run_controls_use_runtime_models_when_state_models_empty(tm
 
     html = client.get("/eval").text
 
-    assert '<option value="env-model-alpha">env-model-alpha</option>' in html
-    assert '<option value="env-model-beta">env-model-beta</option>' in html
+    assert '<option value="env-model-alpha">env-model-alpha</option>' not in html
+    assert '<option value="env-model-beta">env-model-beta</option>' not in html
 
 
 def test_teacher_demo_seed_and_eval_cli(tmp_path):

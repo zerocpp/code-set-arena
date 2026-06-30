@@ -19,8 +19,6 @@ from .constants import (
     AI_REVIEWER_NAME,
     AI_REVIEWER_STUDENT_NUMBER,
     APP_NAME,
-    DEFAULT_BASE_URL,
-    DEFAULT_MODELS,
     DEFAULT_RANDOM_SEED,
     DEFAULT_REVIEWS_PER_PROBLEM,
     DISPLAY_VERSION,
@@ -39,8 +37,11 @@ from .config import (
     MASKED_API_KEY,
     load_runtime_config,
     parse_models,
+    require_models,
     settings_are_configured,
     update_local_api_key,
+    validate_api_key,
+    validate_base_url,
 )
 from .course_validation import (
     validate_reviews_for_assignment,
@@ -75,6 +76,11 @@ from .teacher_assignments import (
     build_review_assignment_packages,
     build_review_feedback_packages,
     parse_random_seed,
+)
+from .teacher_version_gate import (
+    allowed_student_versions_from_settings,
+    assert_student_package_version_allowed,
+    normalize_allowed_student_versions,
 )
 from .web_common import find_download, redirect, save_upload
 
@@ -118,13 +124,32 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
     async def save_settings(request: Request) -> Any:
         form = await request.form()
         state_obj = state()
-        runtime = load_runtime_config(root)
         try:
             course_name = str(form.get("course_name", "")).strip() or "CodeSetArena v7"
             api_key = str(form.get("api_key", MASKED_API_KEY))
-            base_url = str(form.get("base_url", "")).strip() or runtime.base_url
+            base_url = str(form.get("base_url", "")).strip()
             models = _parse_models_from_form(form)
             random_seed = parse_random_seed(form.get("random_seed", DEFAULT_RANDOM_SEED))
+            if "allowed_student_versions" in form:
+                allowed_student_versions = normalize_allowed_student_versions(
+                    [str(value) for value in form.getlist("allowed_student_versions")]
+                    if hasattr(form, "getlist")
+                    else str(form.get("allowed_student_versions", ""))
+                )
+            else:
+                allowed_student_versions = allowed_student_versions_from_settings(
+                    state_obj.get("settings", {})
+                )
+            runtime = load_runtime_config(root)
+            validate_base_url(base_url)
+            if api_key == MASKED_API_KEY:
+                if not runtime.api_key_set:
+                    raise ValueError("API Key 不能为空")
+            elif not api_key.strip():
+                raise ValueError("API Key 不能为空")
+            else:
+                validate_api_key(api_key)
+            require_models(models)
             ensure_max_length("course_name", course_name)
             ensure_max_length("base_url", base_url)
             ensure_max_length("random_seed", random_seed)
@@ -142,6 +167,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
             "api_key_display": MASKED_API_KEY if runtime.api_key_set else "",
             "models": models,
             "random_seed": random_seed,
+            "allowed_student_versions": allowed_student_versions,
         }
         append_audit(state_obj, "settings.saved", "teacher settings updated")
         save(state_obj)
@@ -171,6 +197,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
             archive = save_upload(file, root / "stage1-submissions/uploads")
             manifest, payload = read_package(archive, root / "stage1-submissions/imports" / archive.stem)
             _assert_manifest(manifest, ROLE_STUDENT, STAGE1, KIND_PROBLEMS)
+            assert_student_package_version_allowed(manifest, state_obj.get("settings", {}))
             student = payload.get("student", {})
             student_number = student.get("student_number", "")
             assert_student_archive(archive, student_number, STAGE1, KIND_PROBLEMS)
@@ -286,6 +313,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
             archive = save_upload(file, root / "stage2-review-assignment/imported-reviews")
             manifest, payload = read_package(archive)
             _assert_manifest(manifest, ROLE_STUDENT, STAGE2, KIND_REVIEWS)
+            assert_student_package_version_allowed(manifest, state_obj.get("settings", {}))
             student = payload.get("student", {})
             reviewer = student.get("student_number", "")
             assert_student_archive(archive, reviewer, STAGE2, KIND_REVIEWS)
@@ -391,6 +419,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
             archive = save_upload(file, root / "stage3-revisions/uploads")
             manifest, payload = read_package(archive, root / "stage3-revisions/imports" / archive.stem)
             _assert_manifest(manifest, ROLE_STUDENT, STAGE3, KIND_REVISION)
+            assert_student_package_version_allowed(manifest, state_obj.get("settings", {}))
             student = payload.get("student", {})
             student_number = student.get("student_number", "")
             assert_student_archive(archive, student_number, STAGE3, KIND_REVISION)
@@ -468,7 +497,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
     def eval_page(request: Request) -> Any:
         state_obj = state()
         page_state = _state_with_runtime_settings(state_obj, root)
-        settings_models = list(page_state.get("settings", {}).get("models") or DEFAULT_MODELS)
+        settings_models = list(page_state.get("settings", {}).get("models") or [])
         display_models = eval_display_models(state_obj)
         save(state_obj)
         return templates.TemplateResponse(
@@ -948,21 +977,19 @@ def _safe_rate(numerator: int, denominator: int) -> float:
 def _effective_settings(state: dict[str, Any], root: Path | None = None) -> dict[str, Any]:
     runtime = load_runtime_config(root)
     settings = state.get("settings", {})
-    if settings_are_configured(settings):
-        base_url = str(settings.get("base_url") or runtime.base_url or DEFAULT_BASE_URL)
-        models = settings.get("models") or runtime.models or list(DEFAULT_MODELS)
-    else:
-        base_url = runtime.base_url or DEFAULT_BASE_URL
-        models = runtime.models or list(DEFAULT_MODELS)
+    base_url = str(settings.get("base_url") or "").strip()
+    models = list(settings.get("models") or [])
+    configured = settings_are_configured(settings) and runtime.api_key_set
     return {
-        "configured": settings_are_configured(settings),
+        "configured": configured,
         "course_name": settings.get("course_name") or "CodeSetArena v7",
-        "base_url": base_url or DEFAULT_BASE_URL,
+        "base_url": base_url,
         "api_key_set": runtime.api_key_set,
         "api_key_source": runtime.api_key_source,
         "api_key_display": MASKED_API_KEY if runtime.api_key_set else "",
-        "models": models or list(DEFAULT_MODELS),
+        "models": models,
         "random_seed": parse_random_seed(settings.get("random_seed", DEFAULT_RANDOM_SEED)),
+        "allowed_student_versions": allowed_student_versions_from_settings(settings),
     }
 
 
@@ -979,7 +1006,7 @@ def _parse_models_from_form(form: Any) -> list[str]:
         values = [str(value) for value in form.getlist("models")]
         if len(values) > 1:
             parsed = [value.strip() for value in values if value.strip()]
-            return parsed or list(DEFAULT_MODELS)
+            return parsed
     return _parse_models(str(form.get("models", "")))
 
 

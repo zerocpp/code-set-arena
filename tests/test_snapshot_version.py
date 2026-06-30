@@ -14,7 +14,15 @@ def test_snapshot_version_uses_major_minor_only():
 
 def test_student_validation_and_run_records_require_snapshot_version_match(tmp_path):
     client = TestClient(create_student_app(tmp_path))
-    client.post("/settings", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
+    client.post(
+        "/settings",
+        data={
+            "base_url": "https://api.example.test",
+            "api_key": "sk-student-secret",
+            "models": ["deepseek-v4-flash"],
+        },
+    )
+    client.post("/student-info", data={"student_number": "2026000001", "name": "Alice", "class_id": "A"})
     response = client.post("/stage1/problems", follow_redirects=False)
     detail_path = response.headers["location"].split("?", 1)[0]
     problem_data = {

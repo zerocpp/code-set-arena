@@ -18,8 +18,6 @@ from .constants import (
     APP_NAME,
     AUTHOR_REVIEW_RATING_OPTIONS,
     AUTHOR_TESTS_PER_PROBLEM,
-    DEFAULT_BASE_URL,
-    DEFAULT_MODELS,
     DISPLAY_VERSION,
     EXECUTION_PYTHON_IMAGE,
     EXECUTION_PYTHON_VERSION,
@@ -48,8 +46,11 @@ from .config import (
     RuntimeConfig,
     load_runtime_config,
     parse_models,
+    require_models,
     settings_are_configured,
     update_local_api_key,
+    validate_api_key,
+    validate_base_url,
 )
 from .course_validation import (
     ALLOWED_REVIEW_CONCLUSIONS,
@@ -65,7 +66,7 @@ from .package_names import assert_student_archive, assert_teacher_archive, stude
 from .packages import PackageError, read_package, write_package
 from .paths import default_student_root, ensure_student_tree
 from .prompting import prompt_template_id, render_official_prompt, render_official_prompt_parts
-from .model_client import real_completion
+from .model_client import ModelAPIError, real_completion
 from .model_run_utils import execute_model_code, extract_function_code
 from .reset_utils import clear_relative_dirs, remove_file
 from .run_engine import RunEngineError, execute_problem
@@ -133,11 +134,20 @@ def create_student_app(data_root: Path | None = None) -> FastAPI:
     async def save_settings(request: Request) -> Any:
         form = await request.form()
         state_obj = state()
-        runtime = load_runtime_config(root)
         try:
             api_key = str(form.get("api_key", MASKED_API_KEY))
-            base_url = str(form.get("base_url", "")).strip() or runtime.base_url
+            base_url = str(form.get("base_url", "")).strip()
             models = _parse_models_from_form(form)
+            runtime = load_runtime_config(root)
+            validate_base_url(base_url)
+            if api_key == MASKED_API_KEY:
+                if not runtime.api_key_set:
+                    raise ValueError("API Key 不能为空")
+            elif not api_key.strip():
+                raise ValueError("API Key 不能为空")
+            else:
+                validate_api_key(api_key)
+            require_models(models)
             ensure_max_length("base_url", base_url)
             ensure_list_max_length("model_name", models)
             update_local_api_key(root, api_key, empty_clears=True)
@@ -1188,6 +1198,7 @@ def _run_records_view(
             **run,
             "created_at_display": _format_display_time(run.get("created_at", "")),
             "run_origin_display": _run_origin_label(str(run.get("run_origin", ""))),
+            "api_status_display": _api_status_label(str(run.get("api_status", "success"))),
         }
         row = {
             "run": display_run,
@@ -1206,11 +1217,7 @@ def _run_records_view(
         if selected_run_id and run.get("run_id") == selected_run_id:
             selected = display_run
     if selected is None:
-        selected = latest_matching or (
-            {**records[0], "created_at_display": _format_display_time(records[0].get("created_at", ""))}
-            if records
-            else None
-        )
+        selected = latest_matching or (rows[0]["run"] if rows else None)
     if selected is not None:
         matches, validity_reason = _run_record_matches_current_prompt(problem, selected)
         selected["matches_current"] = matches
@@ -1523,7 +1530,19 @@ def _run_origin_label(run_origin: str) -> str:
     return run_origin or "未记录"
 
 
+def _api_status_label(api_status: str) -> str:
+    if api_status == "failed":
+        return "失败"
+    if api_status == "success":
+        return "成功"
+    return api_status or "未记录"
+
+
 def _run_record_matches_current_prompt(problem: dict[str, Any], run: dict[str, Any]) -> tuple[bool, str]:
+    if run.get("api_status") and run.get("api_status") != "success":
+        return False, "API 请求失败，不能用于打包"
+    if run.get("content_hash") and run.get("content_hash") != _problem_signature_hash(problem):
+        return False, "题目内容不同"
     if run.get("snapshot_version", "") != snapshot_version():
         return False, "系统版本不兼容，需要重新校验并运行"
     expected_prompt = _official_prompt_for_problem(problem)
@@ -1646,8 +1665,14 @@ def _build_run_record(
     root: Path | None = None,
 ) -> dict[str, Any]:
     settings = _effective_settings(state, root)
-    models = settings.get("models", DEFAULT_MODELS) or DEFAULT_MODELS
+    if not settings.get("configured"):
+        raise RunEngineError("请先在设置页填写 Base URL、API Key 和模型列表", "model_settings_error")
+    models = settings.get("models", [])
+    if not models:
+        raise RunEngineError("模型列表为空，请先在设置页填写模型名称", "model_settings_error")
     model = requested_model.strip() or models[0]
+    if model not in models:
+        raise RunEngineError("模型必须来自设置页模型列表", "model_settings_error")
     prompt = _official_prompt_for_problem(problem)
     prompt_parts = _official_prompt_parts_for_problem(problem)
     run_id = "run_" + uuid.uuid4().hex[:12]
@@ -1657,13 +1682,37 @@ def _build_run_record(
     model_config = RuntimeConfig(
         base_url=base_url,
         api_key=runtime.api_key,
-        models=list(settings.get("models", DEFAULT_MODELS)),
+        models=list(settings.get("models", [])),
         env_file=runtime.env_file,
     )
     try:
         completion = real_completion(config=model_config, model=model, prompt=prompt)
+    except ModelAPIError as exc:
+        return _failed_api_run_record(
+            problem,
+            model=model,
+            base_url=base_url,
+            prompt=prompt,
+            prompt_parts=prompt_parts,
+            run_id=run_id,
+            created_at=created_at,
+            message=str(exc),
+            request_raw=exc.request_raw,
+            response_raw=exc.response_raw,
+        )
     except RuntimeError as exc:
-        raise RunEngineError(str(exc), "model_api_error") from exc
+        return _failed_api_run_record(
+            problem,
+            model=model,
+            base_url=base_url,
+            prompt=prompt,
+            prompt_parts=prompt_parts,
+            run_id=run_id,
+            created_at=created_at,
+            message=str(exc),
+            request_raw={},
+            response_raw={},
+        )
     raw_response = completion.content
     extracted_code = extract_function_code(raw_response, str(problem.get("signature", "")))
     result = execute_model_code(problem, extracted_code)
@@ -1680,6 +1729,8 @@ def _build_run_record(
         "temperature": MODEL_RUN_TEMPERATURE,
         "top_p": MODEL_RUN_TOP_P,
         "verdict": result["verdict"],
+        "api_status": "success",
+        "api_error": "",
         "created_at": created_at,
         "package_selected": False,
         "api_request_raw": completion.request_raw,
@@ -1690,8 +1741,46 @@ def _build_run_record(
     }
 
 
+def _failed_api_run_record(
+    problem: dict[str, Any],
+    *,
+    model: str,
+    base_url: str,
+    prompt: str,
+    prompt_parts: list[dict[str, str]],
+    run_id: str,
+    created_at: str,
+    message: str,
+    request_raw: dict[str, Any],
+    response_raw: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "run_origin": RUN_ORIGIN_STUDENT_SELF_TEST,
+        "model": model,
+        "base_url": base_url,
+        "prompt_template_id": prompt_template_id(),
+        "prompt": prompt,
+        "prompt_parts": prompt_parts,
+        "content_hash": _problem_signature_hash(problem),
+        "snapshot_version": snapshot_version(),
+        "temperature": MODEL_RUN_TEMPERATURE,
+        "top_p": MODEL_RUN_TOP_P,
+        "verdict": "api_error",
+        "api_status": "failed",
+        "api_error": message,
+        "created_at": created_at,
+        "package_selected": False,
+        "api_request_raw": request_raw,
+        "api_response_raw": response_raw,
+        "raw_response": "",
+        "extracted_code": "",
+        "test_results": [],
+    }
+
+
 def _api_base_url(settings: dict[str, Any]) -> str:
-    return str(settings.get("base_url") or DEFAULT_BASE_URL).rstrip("/")
+    return str(settings.get("base_url") or "").rstrip("/")
 
 
 def _stage2_review_from_form(form: Any, anon_id: str) -> dict[str, str]:
@@ -1796,19 +1885,16 @@ def _assert_manifest(manifest: dict[str, Any], role: str, stage: str, kind: str)
 def _effective_settings(state: dict[str, Any], root: Path | None = None) -> dict[str, Any]:
     runtime = load_runtime_config(root)
     settings = state.get("settings", {})
-    if settings_are_configured(settings):
-        base_url = str(settings.get("base_url") or runtime.base_url or DEFAULT_BASE_URL)
-        models = settings.get("models") or runtime.models or list(DEFAULT_MODELS)
-    else:
-        base_url = runtime.base_url or DEFAULT_BASE_URL
-        models = runtime.models or list(DEFAULT_MODELS)
+    base_url = str(settings.get("base_url") or "").strip()
+    models = list(settings.get("models") or [])
+    configured = settings_are_configured(settings) and runtime.api_key_set
     return {
-        "configured": settings_are_configured(settings),
-        "base_url": base_url or DEFAULT_BASE_URL,
+        "configured": configured,
+        "base_url": base_url,
         "api_key_set": runtime.api_key_set,
         "api_key_source": runtime.api_key_source,
         "api_key_display": MASKED_API_KEY if runtime.api_key_set else "",
-        "models": models or list(DEFAULT_MODELS),
+        "models": models,
     }
 
 
@@ -1825,5 +1911,5 @@ def _parse_models_from_form(form: Any) -> list[str]:
         values = [str(value) for value in form.getlist("models")]
         if len(values) > 1:
             parsed = [value.strip() for value in values if value.strip()]
-            return parsed or list(DEFAULT_MODELS)
+            return parsed
     return _parse_models(str(form.get("models", "")))

@@ -1,11 +1,9 @@
 services:
   codesetarena-student:
-    image: codesetarena-student:v7.1.5
+    image: codesetarena-student:v7.1.6
     ports:
       - "${CODESETARENA_STUDENT_PORT:-8000}:8000"
     volumes:
       - ./data:/data
-    env_file:
-      - .env
     environment:
       CODESETARENA_STUDENT_DATA_DIR: /data
