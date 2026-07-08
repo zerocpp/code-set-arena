@@ -20,6 +20,7 @@ class Stage1ImportResult:
     student_number: str
     archive_name: str
     problem_count: int
+    version_tag: str = ""
     repaired_runs: int = 0
 
 
@@ -70,6 +71,7 @@ def import_stage1_archive(
         "student": student,
         "problems": problems,
         "archive": archive_path.name,
+        "version_tag": result.version_tag,
         "received_at": datetime.now(UTC).isoformat(),
     }
     _set_stage1_status(
@@ -78,6 +80,7 @@ def import_stage1_archive(
         imported=True,
         ok=True,
         archive=archive_path.name,
+        version_tag=result.version_tag,
         detail=f"校验通过，题目数 {result.problem_count}",
     )
     return result
@@ -92,6 +95,7 @@ def validate_stage1_archive(
         archive_path, root / "stage1-submissions/validation-reports" / _archive_import_dir_name(archive_path)
     )
     _assert_manifest(manifest, ROLE_STUDENT, STAGE1, KIND_PROBLEMS)
+    version_tag = str(manifest.get("version_tag") or "").strip()
     assert_student_package_version_allowed(manifest, state.get("settings", {}))
     student = payload.get("student", {})
     student_number = str(student.get("student_number", "")).strip()
@@ -116,6 +120,7 @@ def validate_stage1_archive(
             student_number=student_number,
             archive_name=archive_path.name,
             problem_count=len(problems),
+            version_tag=version_tag,
             repaired_runs=max(0, repaired_after - repaired_before),
         ),
         student,
@@ -138,6 +143,7 @@ def revalidate_stage1_archives(root: Path, state: dict[str, Any]) -> dict[str, s
                 imported=True,
                 ok=False,
                 archive=archive.name,
+                version_tag=_stage1_archive_version_tag(root, archive),
                 detail=str(exc),
             )
             results[archive.name] = str(exc)
@@ -149,6 +155,7 @@ def revalidate_stage1_archives(root: Path, state: dict[str, Any]) -> dict[str, s
                 imported=True,
                 ok=True,
                 archive=archive.name,
+                version_tag=result.version_tag,
                 detail=f"校验通过，题目数 {result.problem_count}",
             )
     return results
@@ -164,16 +171,27 @@ def stage1_roster_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
         student = students.get(student_number) or submissions.get(student_number, {}).get("student", {})
         status = statuses.get(student_number, {})
         submission = submissions.get(student_number)
+        archive = (
+            submission.get("archive", status.get("archive", ""))
+            if submission
+            else status.get("archive", "")
+        )
         rows.append(
             {
                 "student_number": student_number,
                 "name": student.get("name", ""),
                 "class_id": student.get("class_id", ""),
-                "imported": bool(submission),
-                "archive": submission.get("archive", status.get("archive", "")) if submission else status.get("archive", ""),
+                "imported": bool(submission) or bool(status.get("imported")),
+                "archive": archive,
+                "version_tag": (
+                    submission.get("version_tag", status.get("version_tag", ""))
+                    if submission
+                    else status.get("version_tag", "")
+                ),
                 "validation_ok": bool(status.get("ok")) if status else bool(submission),
                 "validation_detail": status.get("detail", "未导入"),
                 "has_submission": bool(submission),
+                "can_delete": bool(archive),
             }
         )
     return rows
@@ -201,11 +219,13 @@ def _set_stage1_status(
     ok: bool,
     archive: str,
     detail: str,
+    version_tag: str = "",
 ) -> None:
     state.setdefault("stage1_package_status", {})[student_number] = {
         "imported": imported,
         "ok": ok,
         "archive": archive,
+        "version_tag": version_tag,
         "detail": detail,
         "checked_at": datetime.now(UTC).isoformat(),
     }
@@ -231,6 +251,17 @@ def _cell_text(value: Any) -> str:
 def _archive_import_dir_name(path: Path) -> str:
     name = path.name
     return name[: -len(".tar.gz")] if name.endswith(".tar.gz") else path.stem
+
+
+def _stage1_archive_version_tag(root: Path, archive_path: Path) -> str:
+    try:
+        manifest, _ = read_package(
+            archive_path,
+            root / "stage1-submissions/validation-reports" / _archive_import_dir_name(archive_path),
+        )
+    except Exception:  # noqa: BLE001 - best effort for the status table.
+        return ""
+    return str(manifest.get("version_tag") or "").strip()
 
 
 def _student_number_from_archive_name(name: str) -> str:

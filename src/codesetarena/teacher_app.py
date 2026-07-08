@@ -250,6 +250,16 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
             return redirect("/stage1", error=f"一键校验完成，发现 {len(failures)} 个异常包")
         return redirect("/stage1", notice=f"一键校验完成，{len(results)} 个包通过")
 
+    @app.post("/stage1/export-status")
+    async def export_stage1_status() -> Any:
+        state_obj = state()
+        output = root / "stage1-submissions/exports/阶段1导出表.xlsx"
+        _write_stage1_status_xlsx(output, stage1_roster_rows(state_obj))
+        state_obj.setdefault("downloads", []).append(output.name)
+        append_audit(state_obj, "stage1.status.exported", output.name)
+        save(state_obj)
+        return redirect("/stage1", notice="学生导入状态表已导出", download=output.name)
+
     @app.post("/stage1/reset")
     async def reset_stage1() -> Any:
         state_obj = state()
@@ -262,6 +272,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
                 "stage1-submissions/uploads",
                 "stage1-submissions/imports",
                 "stage1-submissions/validation-reports",
+                "stage1-submissions/exports",
             ],
         )
         append_audit(state_obj, "stage1.reset", "stage1 submissions and downstream data reset")
@@ -292,12 +303,14 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
     @app.post("/stage1/submissions/{student_number}/delete")
     async def delete_stage1_submission(student_number: str) -> Any:
         state_obj = state()
+        status = state_obj.setdefault("stage1_package_status", {}).get(student_number, {})
         row = state_obj.setdefault("submissions", {}).pop(student_number, None)
-        if not row:
+        archive = row.get("archive", "") if row else str(status.get("archive", ""))
+        if not archive:
             return redirect("/stage1", error="未找到该学生的 Stage 1 包")
         _remove_received_archive(
             root,
-            row.get("archive", ""),
+            archive,
             upload_dir="stage1-submissions/uploads",
             import_dir="stage1-submissions/imports",
         )
@@ -758,6 +771,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
                 "stage3-revisions/feedback-packages",
                 "ta-eval/runs",
                 "stats/exports",
+                "stage1-submissions/exports",
             ],
         )
         if path is None:
@@ -994,7 +1008,36 @@ def _remove_received_archive(
     archive_path = Path(archive_name)
     remove_file(root / upload_dir / archive_path.name)
     if import_dir:
-        shutil.rmtree(root / import_dir / archive_path.stem, ignore_errors=True)
+        import_name = (
+            archive_path.name[: -len(".tar.gz")]
+            if archive_path.name.endswith(".tar.gz")
+            else archive_path.stem
+        )
+        shutil.rmtree(root / import_dir / import_name, ignore_errors=True)
+
+
+def _write_stage1_status_xlsx(output: Path, rows: list[dict[str, Any]]) -> None:
+    try:
+        from openpyxl import Workbook
+    except ImportError as exc:  # pragma: no cover - exercised only in broken environments.
+        raise RuntimeError("导出阶段1导出表.xlsx 需要安装 openpyxl") from exc
+    output.parent.mkdir(parents=True, exist_ok=True)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "学生导入状态"
+    sheet.append(["学号", "姓名", "班级", "导入情况", "校验情况", "包名"])
+    for row in rows:
+        sheet.append(
+            [
+                row.get("student_number", ""),
+                row.get("name", ""),
+                row.get("class_id", ""),
+                "已导入" if row.get("imported") else "未导入",
+                "校验通过" if row.get("validation_ok") else row.get("validation_detail", "未导入"),
+                row.get("archive", ""),
+            ]
+        )
+    workbook.save(output)
 
 
 def _assert_manifest(manifest: dict[str, Any], role: str, stage: str, kind: str) -> None:

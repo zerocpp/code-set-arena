@@ -41,6 +41,7 @@ TEACHER_DIRS = [
     "stage1-submissions/uploads",
     "stage1-submissions/imports",
     "stage1-submissions/validation-reports",
+    "stage1-submissions/exports",
     "stage2-review-assignment/anonymous-corpus",
     "stage2-review-assignment/assignments",
     "stage2-review-assignment/review-packages",

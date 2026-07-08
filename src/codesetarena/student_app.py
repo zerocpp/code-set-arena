@@ -1878,7 +1878,7 @@ def _stage2_submission_archive_contents(
     assignment = payload.get("assignment")
     if not isinstance(assignment, dict):
         raise ValueError(
-            "旧版审稿提交包不能作为存档导入，请导入 v7.1.8 或之后导出的审稿提交包；"
+            "旧版审稿提交包不能作为存档导入，请导入 v7.1.9 或之后导出的审稿提交包；"
             "旧包仍可提交给助教端"
         )
     validate_review_assignment_payload(assignment)
