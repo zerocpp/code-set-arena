@@ -23,12 +23,10 @@ from .constants import (
     DEFAULT_REVIEWS_PER_PROBLEM,
     DISPLAY_VERSION,
     KIND_COURSE_STATS,
-    KIND_PROBLEMS,
     KIND_REVIEWS,
     KIND_REVISION,
     PROBLEMS_PER_STUDENT,
     ROLE_STUDENT,
-    STAGE1,
     STAGE2,
     STAGE3,
     STAGE4,
@@ -75,7 +73,16 @@ from .teacher_eval import (
 from .teacher_assignments import (
     build_review_assignment_packages,
     build_review_feedback_packages,
+    import_review_assignment_bundle,
     parse_random_seed,
+)
+from .teacher_stage1 import (
+    import_stage1_archive,
+    load_student_roster_xlsx,
+    missing_roster_students,
+    revalidate_stage1_archives,
+    stage1_invalid_statuses,
+    stage1_roster_rows,
 )
 from .teacher_version_gate import (
     allowed_student_versions_from_settings,
@@ -111,6 +118,27 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def home() -> Any:
         return redirect("/stage1")
+
+    @app.get("/students", response_class=HTMLResponse)
+    def students_page(request: Request) -> Any:
+        return templates.TemplateResponse(
+            request,
+            "teacher/students.html",
+            _context(request, "students", view_state()),
+        )
+
+    @app.post("/students/upload")
+    async def upload_students(file: UploadFile = File(...)) -> Any:
+        state_obj = state()
+        try:
+            archive = save_upload(file, root / "students")
+            students = load_student_roster_xlsx(archive)
+            state_obj["students"] = students
+            append_audit(state_obj, "students.uploaded", archive.name)
+            save(state_obj)
+        except Exception as exc:
+            return redirect("/students", error="导入学生名单失败：" + str(exc))
+        return redirect("/students", notice=f"已导入 {len(students)} 名学生")
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request) -> Any:
@@ -186,39 +214,47 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
 
     @app.get("/stage1", response_class=HTMLResponse)
     def stage1_page(request: Request) -> Any:
+        state_obj = state()
+        context = _context(request, "stage1", state_obj)
+        context["stage1_rows"] = stage1_roster_rows(state_obj)
         return templates.TemplateResponse(
-            request, "teacher/stage1.html", _context(request, "stage1", state())
+            request, "teacher/stage1.html", context
         )
 
     @app.post("/stage1/upload")
     async def upload_stage1(file: UploadFile = File(...)) -> Any:
         state_obj = state()
+        temp_archive: Path | None = None
         try:
-            archive = save_upload(file, root / "stage1-submissions/uploads")
-            manifest, payload = read_package(archive, root / "stage1-submissions/imports" / archive.stem)
-            _assert_manifest(manifest, ROLE_STUDENT, STAGE1, KIND_PROBLEMS)
-            assert_student_package_version_allowed(manifest, state_obj.get("settings", {}))
-            student = payload.get("student", {})
-            student_number = student.get("student_number", "")
-            assert_student_archive(archive, student_number, STAGE1, KIND_PROBLEMS)
-            problems = payload.get("problems", [])
-            validate_stage1_problem_package(problems)
-            state_obj.setdefault("submissions", {})[student_number] = {
-                "student": student,
-                "problems": problems,
-                "archive": archive.name,
-                "received_at": datetime.now(UTC).isoformat(),
-            }
-            append_audit(state_obj, "stage1.uploaded", archive.name)
+            temp_archive = save_upload(file, root / "stage1-submissions/upload-check")
+            result = import_stage1_archive(root, state_obj, temp_archive)
+            _clear_teacher_downstream_from_stage2(state_obj, root)
+            append_audit(state_obj, "stage1.uploaded", result.archive_name)
             save(state_obj)
         except Exception as exc:
             return redirect("/stage1", error="上传 Stage 1 包失败：" + str(exc))
-        return redirect("/stage1", notice=f"已导入 {student_number} 的 Stage 1 原始题目包")
+        finally:
+            if temp_archive:
+                remove_file(temp_archive)
+        return redirect("/stage1", notice=f"已导入 {result.student_number} 的 Stage 1 原始题目包")
+
+    @app.post("/stage1/validate-all")
+    async def validate_all_stage1() -> Any:
+        state_obj = state()
+        results = revalidate_stage1_archives(root, state_obj)
+        _clear_teacher_downstream_from_stage2(state_obj, root)
+        append_audit(state_obj, "stage1.validate_all", f"validated {len(results)} archives")
+        save(state_obj)
+        failures = {name: detail for name, detail in results.items() if detail != "ok"}
+        if failures:
+            return redirect("/stage1", error=f"一键校验完成，发现 {len(failures)} 个异常包")
+        return redirect("/stage1", notice=f"一键校验完成，{len(results)} 个包通过")
 
     @app.post("/stage1/reset")
     async def reset_stage1() -> Any:
         state_obj = state()
         state_obj["submissions"] = {}
+        state_obj["stage1_package_status"] = {}
         _clear_teacher_downstream_from_stage2(state_obj, root)
         clear_relative_dirs(
             root,
@@ -265,6 +301,7 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
             upload_dir="stage1-submissions/uploads",
             import_dir="stage1-submissions/imports",
         )
+        state_obj.setdefault("stage1_package_status", {}).pop(student_number, None)
         _clear_teacher_downstream_from_stage2(state_obj, root)
         append_audit(state_obj, "stage1.submission.deleted", student_number)
         save(state_obj)
@@ -279,9 +316,24 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
         )
 
     @app.post("/stage2/assign")
-    async def generate_assignments(reviews_per_problem: int = Form(DEFAULT_REVIEWS_PER_PROBLEM)) -> Any:
+    async def generate_assignments(
+        reviews_per_problem: int = Form(DEFAULT_REVIEWS_PER_PROBLEM),
+        confirm_missing: str = Form(""),
+    ) -> Any:
         state_obj = state()
         try:
+            invalid = stage1_invalid_statuses(state_obj)
+            if invalid:
+                raise ValueError("Stage 1 存在异常包，不能生成审稿任务：" + "；".join(
+                    f"{student}: {detail}" for student, detail in sorted(invalid.items())
+                ))
+            missing = missing_roster_students(state_obj)
+            if missing and confirm_missing != "1":
+                names = "、".join(
+                    f"{student['student_number']} {student.get('name', '')}".strip()
+                    for student in missing
+                )
+                raise ValueError(f"当前学生名单有 {len(missing)} 人缺席 Stage 1 包，请确认后再生成：{names}")
             _clear_teacher_downstream_from_stage2(state_obj, root)
             bundle, _, _ = build_review_assignment_packages(root, state_obj, reviews_per_problem)
             append_audit(state_obj, "stage2.assignments.generated", bundle.name)
@@ -297,6 +349,33 @@ def create_teacher_app(data_root: Path | None = None) -> FastAPI:
         append_audit(state_obj, "stage2.assign.reset", "stage2 assignments and downstream data reset")
         save(state_obj)
         return redirect("/stage2/assign", notice="Stage 2 审稿分配已重置")
+
+    @app.post("/stage2/assign/import")
+    async def import_stage2_assignments(file: UploadFile = File(...)) -> Any:
+        state_obj = state()
+        temp_archive: Path | None = None
+        try:
+            temp_archive = save_upload(file, root / "stage2-review-assignment/import-check")
+            manifest = import_review_assignment_bundle(root, state_obj, temp_archive)
+            _clear_teacher_downstream_from_reviews(state_obj, root)
+            clear_relative_dirs(
+                root,
+                [
+                    "stage2-review-assignment/anonymous-corpus",
+                    "stage2-review-assignment/assignments",
+                ],
+            )
+            append_audit(state_obj, "stage2.assign.imported", temp_archive.name)
+            save(state_obj)
+        except Exception as exc:
+            return redirect("/stage2/assign", error="导入审稿任务包失败：" + str(exc))
+        finally:
+            if temp_archive:
+                remove_file(temp_archive)
+        return redirect(
+            "/stage2/assign",
+            notice=f"已导入审稿任务包，每题总审稿份数 {manifest.get('reviews_per_problem')}",
+        )
 
     @app.get("/stage2/reviews", response_class=HTMLResponse)
     def stage2_reviews_page(request: Request) -> Any:

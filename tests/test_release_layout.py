@@ -43,3 +43,12 @@ def test_deploy_packages_do_not_ship_model_env_examples():
     assert ".env.example" not in local_script
     assert "env_file:" not in student_compose
     assert "env_file:" not in teacher_compose
+
+
+def test_student_and_teacher_dockerfiles_keep_dependency_layer_before_source():
+    for name in ["student", "teacher"]:
+        dockerfile = (ROOT / f"docker/{name}/Dockerfile").read_text(encoding="utf-8")
+        assert "COPY requirements.txt /app/" in dockerfile
+        assert "RUN python -m pip install --no-cache-dir -r requirements.txt" in dockerfile
+        assert dockerfile.index("COPY requirements.txt /app/") < dockerfile.index("COPY src /app/src")
+        assert "RUN python -m pip install --no-cache-dir --no-deps ." in dockerfile

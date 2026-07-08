@@ -1,0 +1,34 @@
+{% extends "teacher/base.html" %}
+{% block content %}
+<section class="panel hero">
+  <div>
+    <h1>学生名单</h1>
+    <p>导入后作为 Stage 1 收包、Stage 2 分配和后续统计的全局名单。</p>
+  </div>
+</section>
+<section class="panel">
+  <div class="heading-title">
+    <h2>导入名单</h2>
+    <span class="help-icon" data-tooltip="Excel 第一行是表头，第一列学号，第二列姓名，第三列班级。重复导入只覆盖学生元信息，不覆盖各 Stage 状态。">?</span>
+  </div>
+  <form method="post" action="/students/upload" enctype="multipart/form-data" class="inline-form">
+    <input type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+    <button type="submit">导入学生名单</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>当前名单</h2>
+  <table>
+    <tr><th>学号</th><th>姓名</th><th>班级</th></tr>
+    {% for student_number, student in state.students.items() %}
+    <tr>
+      <td><code>{{ student_number }}</code></td>
+      <td>{{ student.name }}</td>
+      <td>{{ student.class_id }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3">暂无学生名单</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

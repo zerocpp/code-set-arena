@@ -15,10 +15,21 @@
       <span class="help-icon" data-tooltip="填写每道题最终需要几份审稿意见，记为 x。其中 1 份固定交给 AI，剩余 x-1 份由学生互审。若每名学生提交 {{ problems_per_student }} 道题，每位学生审稿人大约会收到 {{ problems_per_student }} × (x-1) 道匿名题。">?</span>
       <input name="reviews_per_problem" value="{{ default_reviews_per_problem }}" maxlength="{{ limits.reviews_per_problem }}" inputmode="numeric" pattern="[0-9]{1,2}">
     </label>
+    <label><input type="checkbox" name="confirm_missing" value="1"> 确认名单缺席学生不参与 Stage 2</label>
     <button type="submit">生成审稿任务包</button>
   </form>
   <p>AI 审稿任务包：AI-teacher-stage2-review-assignment.tar.gz</p>
   <p>批量包名：teacher-stage2-review-assignments.tar.gz</p>
+</section>
+<section class="panel">
+  <div class="heading-title">
+    <h2>导入已有分配</h2>
+    <span class="help-icon" data-tooltip="导入 teacher-stage2-review-assignments.tar.gz 会覆盖当前分配、匿名映射、随机种子和每题审稿份数，并清空依赖旧分配的后续数据。">?</span>
+  </div>
+  <form method="post" action="/stage2/assign/import" enctype="multipart/form-data" class="inline-form">
+    <input type="file" name="file" accept=".tar.gz,application/gzip" required>
+    <button type="submit">导入审稿任务包</button>
+  </form>
 </section>
 <section class="panel">
   <h2>当前分配</h2>

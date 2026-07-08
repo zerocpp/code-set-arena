@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/student/Dockerfile
-    image: codesetarena-student:v7.1.8
+    image: codesetarena-student:v7.1.9
     ports:
       - "8000:8000"
     volumes:
@@ -13,7 +13,7 @@ services:
     build:
       context: .
       dockerfile: docker/teacher/Dockerfile
-    image: codesetarena-teacher:v7.1.8
+    image: codesetarena-teacher:v7.1.9
     ports:
       - "8010:8010"
     volumes:
@@ -23,7 +23,7 @@ services:
     build:
       context: .
       dockerfile: docker/runtime/Dockerfile
-    image: codesetarena-runtime:v7.1.8
+    image: codesetarena-runtime:v7.1.9
     network_mode: "none"
     read_only: true
     tmpfs:

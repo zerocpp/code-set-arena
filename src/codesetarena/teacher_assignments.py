@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import shutil
+import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
+from .course_validation import validate_review_assignment_payload
 from .constants import (
     AI_REVIEWER_CLASS_ID,
     AI_REVIEWER_NAME,
@@ -18,7 +23,7 @@ from .constants import (
     STAGE3,
 )
 from .package_names import teacher_bulk_name, teacher_package_name
-from .packages import write_bundle, write_package
+from .packages import PackageError, read_package, write_bundle, write_package
 
 
 def parse_random_seed(value: Any) -> int:
@@ -72,7 +77,7 @@ def build_review_assignment_packages(
         problem_index = entry["problem_index"]
         problem_id = entry["problem_id"]
         problem_info = problem_lookup[(author, problem_id, problem_index)]
-        reviewers = balanced_reviewers[(author, problem_id, problem_index)]
+        reviewers = balanced_reviewers.get((author, problem_id, problem_index), [])
         reviewer_specs = [(AI_REVIEWER_STUDENT_NUMBER, "ai"), *[(item, "human") for item in reviewers]]
         for reviewer, review_origin in reviewer_specs:
             review_assignment = {
@@ -237,6 +242,47 @@ def build_review_feedback_packages(root: Path, state: dict[str, Any]) -> tuple[P
     return bundle, package_paths, manifest
 
 
+def import_review_assignment_bundle(root: Path, state: dict[str, Any], bundle_path: Path) -> dict[str, Any]:
+    if bundle_path.name != teacher_bulk_name(STAGE2, "review-assignments"):
+        raise ValueError(f"审稿任务批量包名必须是 {teacher_bulk_name(STAGE2, 'review-assignments')}")
+    with tempfile.TemporaryDirectory(prefix="codesetarena-stage2-bundle-") as temp_name:
+        temp_root = Path(temp_name)
+        _extract_safe_bundle(bundle_path, temp_root)
+        manifest_path = temp_root / "bundle-manifest.json"
+        if not manifest_path.exists():
+            raise PackageError("bundle missing bundle-manifest.json")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("stage") != STAGE2 or manifest.get("kind") != "review-assignments":
+            raise PackageError("bundle manifest stage/kind 不匹配")
+        package_files = [str(name) for name in manifest.get("package_files", [])]
+        if not package_files:
+            raise PackageError("bundle package_files 为空")
+        _assert_bundle_students_allowed(state, manifest)
+        for package_file in package_files:
+            package_path = temp_root / Path(package_file).name
+            if not package_path.exists():
+                raise PackageError(f"bundle missing package {package_file}")
+            package_manifest, payload = read_package(package_path)
+            if package_manifest.get("package_role") != ROLE_TEACHER:
+                raise PackageError(f"{package_file} manifest package_role 不匹配")
+            if package_manifest.get("package_stage") != STAGE2:
+                raise PackageError(f"{package_file} manifest package_stage 不匹配")
+            if package_manifest.get("package_kind") != KIND_REVIEW_ASSIGNMENT:
+                raise PackageError(f"{package_file} manifest package_kind 不匹配")
+            validate_review_assignment_payload(payload)
+
+        output_dir = root / "stage2-review-assignment/review-packages"
+        shutil.rmtree(output_dir, ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(bundle_path, output_dir / bundle_path.name)
+        for package_file in package_files:
+            package_path = temp_root / Path(package_file).name
+            shutil.copy2(package_path, output_dir / package_path.name)
+    state["assignments"] = _assignments_from_bundle_manifest(manifest)
+    state["stage2_assignment_manifest"] = manifest
+    return manifest
+
+
 def _assignment_problem_entries(submissions: dict[str, Any]) -> list[dict[str, Any]]:
     entries = []
     for author, submission in sorted(submissions.items()):
@@ -252,6 +298,62 @@ def _assignment_problem_entries(submissions: dict[str, Any]) -> list[dict[str, A
     return entries
 
 
+def _extract_safe_bundle(bundle_path: Path, destination: Path) -> None:
+    with tarfile.open(bundle_path, "r:gz") as tar:
+        for member in tar.getmembers():
+            if not (member.isfile() or member.isdir()):
+                raise PackageError("unsafe archive member")
+            target = destination / member.name
+            try:
+                target.relative_to(destination)
+            except ValueError as exc:
+                raise PackageError("unsafe archive member") from exc
+            if member.name.startswith("/") or ".." in Path(member.name).parts:
+                raise PackageError("unsafe archive member")
+        tar.extractall(destination)
+
+
+def _assert_bundle_students_allowed(state: dict[str, Any], manifest: dict[str, Any]) -> None:
+    roster = state.get("students", {})
+    if not roster:
+        return
+    unknown: set[str] = set()
+    for item in manifest.get("anonymous_user_map", []):
+        real_user_id = str(item.get("real_user_id", ""))
+        if real_user_id and real_user_id != AI_REVIEWER_STUDENT_NUMBER and real_user_id not in roster:
+            unknown.add(real_user_id)
+    for item in manifest.get("assignments", []):
+        for key in ("reviewer_student_number", "author_student_number"):
+            student_number = str(item.get(key, ""))
+            if (
+                student_number
+                and student_number != AI_REVIEWER_STUDENT_NUMBER
+                and student_number not in roster
+            ):
+                unknown.add(student_number)
+    if unknown:
+        raise ValueError("审稿任务包包含未在学生名单中的学号：" + "、".join(sorted(unknown)))
+
+
+def _assignments_from_bundle_manifest(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    assignments: dict[str, dict[str, Any]] = {}
+    for item in manifest.get("assignments", []):
+        reviewer = str(item.get("reviewer_student_number", ""))
+        anon_id = str(item.get("anonymous_problem_id", ""))
+        if not reviewer or not anon_id:
+            continue
+        assignments.setdefault(reviewer, {})[anon_id] = {
+            "author_student_number": item.get("author_student_number", ""),
+            "problem_id": item.get("problem_id", ""),
+            "problem_index": item.get("problem_index", 0),
+            "review_origin": item.get("review_origin", ""),
+            "anonymous_problem_id": anon_id,
+            "anonymous_author_id": item.get("anonymous_author_id", ""),
+            "reviewer_anonymous_user_id": item.get("reviewer_anonymous_user_id", ""),
+        }
+    return assignments
+
+
 def _balanced_human_reviewers_for_problems(
     seed: int,
     students: list[str],
@@ -259,6 +361,9 @@ def _balanced_human_reviewers_for_problems(
     count: int,
 ) -> dict[tuple[str, str, int], list[str]]:
     reviewer_plan: dict[tuple[str, str, int], list[str]] = {}
+    if count == 0:
+        _validate_balanced_human_reviewer_plan(students, reviewer_plan, problem_entries, count)
+        return reviewer_plan
     seeded_students = sorted(students, key=lambda student: _stable_token(seed, "student-order", student))
     student_positions = {student: index for index, student in enumerate(seeded_students)}
     global_offset = int(_stable_token(seed, "reviewer-start"), 16)

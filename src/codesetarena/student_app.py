@@ -67,7 +67,13 @@ from .packages import PackageError, read_package, write_package
 from .paths import default_student_root, ensure_student_tree
 from .prompting import prompt_template_id, render_official_prompt, render_official_prompt_parts
 from .model_client import ModelAPIError, real_completion
-from .model_run_utils import execute_model_code, extract_function_code
+from .model_run_utils import (
+    RunRepairError,
+    execute_model_code,
+    extract_function_code,
+    repair_run_record_for_compat,
+    response_final_text,
+)
 from .reset_utils import clear_relative_dirs, remove_file
 from .run_engine import RunEngineError, execute_problem
 from .storage import default_student_state, load_student_state, save_student_state
@@ -1542,6 +1548,7 @@ def _run_record_selectable_for_package(problem: dict[str, Any], run: dict[str, A
     return (
         _run_record_matches_current_prompt(problem, run)[0]
         and _run_record_has_raw_evidence(run)
+        and _run_record_has_or_can_restore_final_text(run)
         and bool(run.get("run_id"))
     )
 
@@ -1565,17 +1572,34 @@ def _run_selection_response_payload(problem: dict[str, Any], selected_count: int
 
 
 def _selected_package_run_records(problem: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {**run, "package_selected": True}
-        for run in problem.get("run_records", [])
-        if run.get("package_selected")
-        and _run_record_matches_current_prompt(problem, run)[0]
-        and _run_record_has_raw_evidence(run)
-    ]
+    selected = []
+    for run in problem.get("run_records", []):
+        if not (
+            run.get("package_selected")
+            and _run_record_matches_current_prompt(problem, run)[0]
+            and _run_record_has_raw_evidence(run)
+        ):
+            continue
+        exported_run = {**run, "package_selected": True}
+        try:
+            repair_run_record_for_compat(exported_run, str(problem.get("signature", "")))
+        except RunRepairError:
+            continue
+        if _run_record_has_or_can_restore_final_text(exported_run):
+            selected.append(exported_run)
+    return selected
 
 
 def _run_record_has_raw_evidence(run: dict[str, Any]) -> bool:
     return bool(run.get("prompt") and run.get("api_request_raw") and run.get("api_response_raw"))
+
+
+def _run_record_has_or_can_restore_final_text(run: dict[str, Any]) -> bool:
+    return bool(
+        run.get("raw_response")
+        or run.get("extracted_code")
+        or response_final_text(run.get("api_response_raw"))
+    )
 
 
 def _run_origin_label(run_origin: str) -> str:
