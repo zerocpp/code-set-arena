@@ -3,14 +3,14 @@
 <section class="panel hero">
   <div>
     <h1>Stage 2 匿名审稿</h1>
-    <p>导入助教发放的审稿任务包，填写结构化 review。</p>
+    <p>导入助教发放的审稿任务包，或导入自己此前导出的审稿提交包恢复存档；完成全部审稿后导出 Stage 2 审稿提交包。</p>
   </div>
 </section>
 
 <section class="panel stage-actions-panel">
   <div class="heading-title">
     <h2>清空当前 Stage 与导入包</h2>
-    <span class="help-icon" data-tooltip="清空当前 Stage 会删除已导入的审稿任务、已填写的审稿意见和已导出的 Stage 2 审稿包。导入包会替换当前审稿任务并同步学生信息。">?</span>
+    <span class="help-icon" data-tooltip="清空当前 Stage 会删除已导入的审稿任务、已填写的审稿意见和已导出的 Stage 2 审稿包。【导入审稿任务包】用于导入助教下发的原始任务包，里面只有待审题目，没有你的审稿意见；【导入审稿提交包】用于导入你已完成审稿后导出的提交包，恢复自己的审稿存档。">?</span>
   </div>
   <div class="actions">
   <form method="post" action="/stage2/reset" onsubmit="return confirm('确定要重置 Stage 2 吗？这会清空已导入的审稿任务、已填写的 review 和已导出的审稿包。');">
@@ -20,8 +20,13 @@
       <input type="file" name="file" accept=".tar.gz,application/gzip" required>
       <button type="submit">导入审稿任务包</button>
     </form>
+    <form method="post" action="/stage2/import-submission" enctype="multipart/form-data" class="inline-form">
+      <input type="file" name="file" accept=".tar.gz,application/gzip" required>
+      <button type="submit">导入审稿提交包</button>
+    </form>
   </div>
-  <p class="muted">文件名：{学号}-teacher-stage2-review-assignment.tar.gz。导入后会同步学生信息，并替换当前审稿任务。</p>
+  <p class="muted">导入审稿任务包：文件名为 {学号}-teacher-stage2-review-assignment.tar.gz，是助教下发的原始任务包，里面只有待审题目，没有你的审稿意见；导入后会同步学生信息，并替换当前审稿任务。</p>
+  <p class="muted">导入审稿提交包：文件名为 {学号}-student-stage2-reviews.tar.gz，是你完成审稿后导出的存档，用于恢复自己的审稿存档；v7.1.8 起导出的提交包可恢复任务和审稿意见，旧版提交包不能在这里导入，但仍可提交给助教端。</p>
 </section>
 
 {% include "student/student_info.html" %}
@@ -158,6 +163,7 @@
   <section class="panel package" id="stage2-package-panel">
     <h2>导出 Stage 2 审稿提交包</h2>
     <p>文件名：{学号}-student-stage2-reviews.tar.gz</p>
+    <p class="muted">从 v7.1.8 起，导出的审稿提交包包含任务快照，可作为学生端存档恢复，也可提交给助教端。</p>
     {% if package_error %}
     <div class="form-inline-message error-text" id="stage2-package-error" aria-live="polite">{{ package_error }}</div>
     {% endif %}

@@ -506,7 +506,12 @@ def student_stage2_package(data_dir: Path = typer.Option(default_student_root(),
         stage=STAGE2,
         kind=KIND_REVIEWS,
         student_number=student["student_number"],
-        payload={"student": student, "assignment_id": assignment.get("assignment_id", ""), "reviews": reviews},
+        payload={
+            "student": student,
+            "assignment_id": assignment.get("assignment_id", ""),
+            "assignment": assignment,
+            "reviews": reviews,
+        },
     )
     _echo_json({"archive": str(output), "filename": output.name})
 

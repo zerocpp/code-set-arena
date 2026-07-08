@@ -1715,6 +1715,156 @@ def test_student_rejects_incomplete_stage2_review_assignment(tmp_path):
     assert load_student_state(student_root)["assignment"] is None
 
 
+def test_student_stage2_submission_archive_import_round_trip(tmp_path):
+    student_root = tmp_path / "student"
+    student = TestClient(create_student_app(student_root))
+    assignment = _make_review_assignment_package(tmp_path, "2026000001")
+
+    page = student.get("/stage2")
+    assert "导入审稿任务包" in page.text
+    assert "导入审稿提交包" in page.text
+    assert "里面只有待审题目，没有你的审稿意见" in page.text
+    assert "用于恢复自己的审稿存档" in page.text
+
+    _upload(student, "/stage2/import", assignment)
+    assignment_state = load_student_state(student_root)["assignment"]
+    response = student.post(
+        "/stage2/package",
+        data=_review_form_for_assignment(assignment_state),
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    archive = student_root / "stage2-review/exports" / student_package_name(
+        "2026000001", STAGE2, KIND_REVIEWS
+    )
+    _, payload = read_package(archive)
+    assert payload["assignment"] == assignment_state
+    assert payload["assignment_id"] == assignment_state["assignment_id"]
+    saved_archive = tmp_path / "saved" / archive.name
+    saved_archive.parent.mkdir()
+    saved_archive.write_bytes(archive.read_bytes())
+
+    student.post("/stage2/reset", follow_redirects=False)
+    assert load_student_state(student_root)["assignment"] is None
+    response = _upload_response(student, "/stage2/import-submission", saved_archive)
+    assert response.status_code == 303
+    restored = load_student_state(student_root)
+    assert restored["student"]["student_number"] == "2026000001"
+    assert restored["assignment"]["assignment_id"] == "asg_test"
+    assert restored["reviews"]["anon_test"]["conclusion"] == "major"
+    assert "Return x." in student.get("/stage2").text
+
+
+def test_student_stage2_submission_archive_import_rejects_legacy_package(tmp_path):
+    student_root = tmp_path / "student"
+    student = TestClient(create_student_app(student_root))
+    assignment = _make_review_assignment_package(tmp_path, "2026000001")
+    legacy_archive = _make_stage2_review_submission_package(
+        tmp_path, "2026000001", include_assignment=False
+    )
+
+    _upload(student, "/stage2/import", assignment)
+    response = _upload_response(student, "/stage2/import-submission", legacy_archive)
+
+    assert response.status_code == 303
+    detail = student.get(response.headers["location"])
+    assert "旧版审稿提交包不能作为存档导入" in detail.text
+    assert "旧包仍可提交给助教端" in detail.text
+    state = load_student_state(student_root)
+    assert state["assignment"]["assignment_id"] == "asg_test"
+    assert state["reviews"] == {}
+
+
+def test_student_stage2_submission_archive_import_rejects_mismatched_reviews(tmp_path):
+    student_root = tmp_path / "student"
+    student = TestClient(create_student_app(student_root))
+    archive = _make_stage2_review_submission_package(
+        tmp_path, "2026000001", review_anonymous_id="anon_other", include_assignment=True
+    )
+
+    response = _upload_response(student, "/stage2/import-submission", archive)
+
+    assert response.status_code == 303
+    detail = student.get(response.headers["location"])
+    assert "审稿提交包中的审稿题目与任务包不一致" in detail.text
+    assert load_student_state(student_root)["assignment"] is None
+
+
+def test_student_stage2_submission_archive_import_rejects_invalid_submission_shapes(tmp_path):
+    student_root = tmp_path / "student"
+    student = TestClient(create_student_app(student_root))
+    mismatch_assignment = _make_stage2_review_submission_package(
+        tmp_path / "mismatch-assignment",
+        "2026000001",
+        include_assignment=True,
+        package_assignment_id="asg_other",
+    )
+    missing_reviews = _make_stage2_review_submission_package(
+        tmp_path / "missing-reviews",
+        "2026000001",
+        include_assignment=True,
+        include_reviews=False,
+    )
+    wrong_filename_source = _make_stage2_review_submission_package(
+        tmp_path / "wrong-source", "2026000001", include_assignment=True
+    )
+    wrong_filename = tmp_path / "wrong-filename" / student_package_name(
+        "2026000002", STAGE2, KIND_REVIEWS
+    )
+    wrong_filename.parent.mkdir()
+    wrong_filename.write_bytes(wrong_filename_source.read_bytes())
+
+    cases = [
+        (mismatch_assignment, "assignment_id 与任务包不一致"),
+        (missing_reviews, "审稿提交包缺少有效的审稿内容"),
+        (wrong_filename, "expected 2026000001-student-stage2-reviews.tar.gz"),
+    ]
+    for archive, expected_message in cases:
+        response = _upload_response(student, "/stage2/import-submission", archive)
+        assert response.status_code == 303
+        assert expected_message in student.get(response.headers["location"]).text
+        assert load_student_state(student_root)["assignment"] is None
+
+
+def test_student_stage2_assignment_import_rejects_review_submission_package(tmp_path):
+    student_root = tmp_path / "student"
+    student = TestClient(create_student_app(student_root))
+    archive = _make_stage2_review_submission_package(
+        tmp_path, "2026000001", include_assignment=True
+    )
+
+    response = _upload_response(student, "/stage2/import", archive)
+
+    assert response.status_code == 303
+    detail = student.get(response.headers["location"])
+    assert "导入审稿任务包失败" in detail.text
+    assert "manifest package_role 不匹配" in detail.text
+
+
+def test_teacher_stage2_upload_accepts_legacy_and_new_review_submission_packages(tmp_path):
+    teacher_root = tmp_path / "teacher"
+    ensure_teacher_tree(teacher_root)
+    state = load_teacher_state(teacher_root)
+    state["assignments"] = {"2026000001": {"anon_test": {}}}
+    save_teacher_state(teacher_root, state)
+    teacher = TestClient(create_teacher_app(teacher_root))
+    legacy_archive = _make_stage2_review_submission_package(
+        tmp_path / "legacy", "2026000001", include_assignment=False
+    )
+    new_archive = _make_stage2_review_submission_package(
+        tmp_path / "new", "2026000001", include_assignment=True
+    )
+
+    legacy_response = _upload_response(teacher, "/stage2/reviews/upload", legacy_archive)
+    legacy_reviews = load_teacher_state(teacher_root)["reviews"]["2026000001"]["reviews"]
+    new_response = _upload_response(teacher, "/stage2/reviews/upload", new_archive)
+    new_reviews = load_teacher_state(teacher_root)["reviews"]["2026000001"]["reviews"]
+
+    assert legacy_response.status_code == 303
+    assert new_response.status_code == 303
+    assert legacy_reviews == new_reviews
+
+
 def test_student_stage2_page_discards_legacy_incomplete_assignment(tmp_path):
     student_root = tmp_path / "student"
     ensure_student_tree(student_root)
@@ -2204,6 +2354,81 @@ def _make_incomplete_review_assignment_package(root: Path, student_number: str) 
                 }
             ],
         },
+    )
+    return output
+
+
+def _make_stage2_review_submission_package(
+    root: Path,
+    student_number: str,
+    *,
+    review_anonymous_id: str = "anon_test",
+    include_assignment: bool,
+    package_assignment_id: str = "asg_test",
+    include_reviews: bool = True,
+) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    output = root / student_package_name(student_number, STAGE2, KIND_REVIEWS)
+    assignment_payload = {
+        "assignment_id": "asg_test",
+        "student": {"student_number": student_number, "name": "Alice", "class_id": "A"},
+        "assigned_problems": [
+            {
+                "anonymous_id": "anon_test",
+                "title": "Return x.",
+                "statement": "Return x.",
+                "signature": "def solve(x: int) -> int:",
+                "reference_solution": "def solve(x: int) -> int:\n    return x\n",
+                "public_tests": [
+                    json.dumps({"input": {"kwargs": {"x": 1}}, "expected": 1}, separators=(",", ":")),
+                    json.dumps({"input": {"kwargs": {"x": 2}}, "expected": 2}, separators=(",", ":")),
+                ],
+                "author_tests": [
+                    json.dumps({"input": {"kwargs": {"x": value}}, "expected": value}, separators=(",", ":"))
+                    for value in range(AUTHOR_TESTS_PER_PROBLEM)
+                ],
+                "notes": "",
+                "run_records": [
+                    {
+                        "run_id": "run_test",
+                        "run_origin": "student_self_test",
+                        "model": "deepseek-v4-flash",
+                        "verdict": "passed",
+                        "package_selected": True,
+                        "prompt": "Return x.",
+                        "api_request_raw": {"body": {"messages": [{"content": "Return x."}]}},
+                        "api_response_raw": {
+                            "choices": [{"message": {"content": "def solve(x: int) -> int:\n    return x\n"}}]
+                        },
+                        "raw_response": "def solve(x: int) -> int:\n    return x\n",
+                        "extracted_code": "def solve(x: int) -> int:\n    return x\n",
+                    }
+                ],
+            }
+        ],
+    }
+    payload = {
+        "student": assignment_payload["student"],
+        "assignment_id": package_assignment_id,
+    }
+    if include_reviews:
+        payload["reviews"] = [
+            {
+                "anonymous_id": review_anonymous_id,
+                "conclusion": "major",
+                "quality_score": "4",
+                "explanation": "建议增加边界数据",
+            }
+        ]
+    if include_assignment:
+        payload["assignment"] = assignment_payload
+    write_package(
+        output,
+        role=ROLE_STUDENT,
+        stage=STAGE2,
+        kind=KIND_REVIEWS,
+        student_number=student_number,
+        payload=payload,
     )
     return output
 

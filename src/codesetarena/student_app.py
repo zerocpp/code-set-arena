@@ -515,6 +515,25 @@ def create_student_app(data_root: Path | None = None) -> FastAPI:
             return redirect("/stage2", error="导入审稿任务包失败：" + str(exc))
         return redirect("/stage2", notice="审稿任务包已导入")
 
+    @app.post("/stage2/import-submission")
+    async def import_review_submission(file: UploadFile = File(...)) -> Any:
+        state_obj = state()
+        try:
+            archive = save_upload(file, root / "stage2-review/imports")
+            manifest, payload = read_package(archive)
+            _assert_manifest(manifest, ROLE_STUDENT, STAGE2, KIND_REVIEWS)
+            student = _student_from_payload(payload)
+            assert_student_archive(archive, student["student_number"], STAGE2, KIND_REVIEWS)
+            assignment, reviews = _stage2_submission_archive_contents(payload)
+            state_obj["student"] = student
+            state_obj["assignment"] = assignment
+            state_obj["reviews"] = {review["anonymous_id"]: review for review in reviews}
+            state_obj.pop("stage2_assignment_error", None)
+            save(state_obj)
+        except Exception as exc:
+            return redirect("/stage2", error="导入审稿提交包失败：" + str(exc))
+        return redirect("/stage2", notice="审稿提交包已导入")
+
     @app.post("/stage2/reset")
     async def reset_stage2() -> Any:
         state_obj = state()
@@ -595,6 +614,7 @@ def create_student_app(data_root: Path | None = None) -> FastAPI:
                 payload={
                     "student": student,
                     "assignment_id": assignment.get("assignment_id", ""),
+                    "assignment": assignment,
                     "reviews": reviews,
                 },
             )
@@ -1826,6 +1846,41 @@ def _stage2_review_from_form(form: Any, anon_id: str) -> dict[str, str]:
         "quality_score": str(quality_score or "").strip(),
         "explanation": str(form.get(f"explanation_{anon_id}", "")).strip(),
     }
+
+
+def _stage2_submission_archive_contents(
+    payload: dict[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    assignment = payload.get("assignment")
+    if not isinstance(assignment, dict):
+        raise ValueError(
+            "旧版审稿提交包不能作为存档导入，请导入 v7.1.8 或之后导出的审稿提交包；"
+            "旧包仍可提交给助教端"
+        )
+    validate_review_assignment_payload(assignment)
+    student = _student_from_payload(payload)
+    assignment_student = _student_from_payload(assignment)
+    if assignment_student != student:
+        raise ValueError("审稿提交包中的学生信息与任务包不一致")
+    package_assignment_id = str(payload.get("assignment_id", "")).strip()
+    assignment_id = str(assignment.get("assignment_id", "")).strip()
+    if not package_assignment_id or package_assignment_id != assignment_id:
+        raise ValueError("审稿提交包中的 assignment_id 与任务包不一致")
+    reviews = payload.get("reviews")
+    if not isinstance(reviews, list):
+        raise ValueError("审稿提交包缺少有效的审稿内容")
+    assigned_ids = {
+        str(item.get("anonymous_id", "")).strip()
+        for item in assignment.get("assigned_problems", [])
+        if item.get("anonymous_id")
+    }
+    try:
+        validate_reviews_for_assignment(assigned_ids, reviews)
+    except ValueError as exc:
+        if "review package must contain exactly assigned reviews" in str(exc):
+            raise ValueError("审稿提交包中的审稿题目与任务包不一致") from exc
+        raise
+    return assignment, reviews
 
 
 def _validate_stage2_review_draft(review: dict[str, str]) -> None:
