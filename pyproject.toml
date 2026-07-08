@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "code-set-arena"
-version = "7.1.9"
+version = "7.1.10"
 description = "CodeSetArena local course system for adversarial programming problem setting and review"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

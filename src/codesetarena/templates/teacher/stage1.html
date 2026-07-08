@@ -22,11 +22,14 @@
   <form method="post" action="/stage1/validate-all" class="inline-form">
     <button type="submit">一键校验所有导入包</button>
   </form>
+  <form method="post" action="/stage1/export-status" class="inline-form">
+    <button type="submit">导出学生导入状态表</button>
+  </form>
 </section>
 <section class="panel">
   <h2>学生导入状态</h2>
   <table>
-    <tr><th>学号</th><th>姓名</th><th>班级</th><th>导入情况</th><th>校验情况</th><th>包名</th><th>操作</th></tr>
+    <tr><th>学号</th><th>姓名</th><th>班级</th><th>导入情况</th><th>校验情况</th><th>版本号</th><th>包名</th><th>操作</th></tr>
     {% for row in stage1_rows %}
     <tr>
       <td>{{ row.student_number }}</td>
@@ -36,11 +39,14 @@
       <td>
         <span class="status-pill {{ 'ok' if row.validation_ok else 'bad' }}">{{ "校验通过" if row.validation_ok else row.validation_detail }}</span>
       </td>
+      <td>{{ row.version_tag }}</td>
       <td>{{ row.archive }}</td>
       <td>
-        {% if row.has_submission %}
+        {% if row.can_delete %}
         <div class="inline-actions">
+          {% if row.has_submission %}
           <a class="button secondary" href="/stage1/submissions/{{ row.student_number }}">详情</a>
+          {% endif %}
           <form method="post" action="/stage1/submissions/{{ row.student_number }}/delete" onsubmit="return confirm('确定删除 {{ row.student_number }} 的 Stage 1 包吗？这会清空依赖它的后续分配、审稿、反馈、修订和评测数据。');">
             <button type="submit" class="danger-quiet">删除</button>
           </form>
@@ -51,7 +57,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="7">暂无学生名单或提交</td></tr>
+    <tr><td colspan="8">暂无学生名单或提交</td></tr>
     {% endfor %}
   </table>
 </section>

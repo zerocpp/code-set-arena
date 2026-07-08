@@ -1,6 +1,6 @@
 # CodeSetArena 学生端本地部署
 
-v7.1.9 起，交付包内不再携带 PDF/MD 说明文档或模型配置 `.env` 文件；本目录只保留本地启动所需文件。
+v7.1.10 起，交付包内不再携带 PDF/MD 说明文档或模型配置 `.env` 文件；本目录只保留本地启动所需文件。
 
 本地交付包按 Docker Server 架构区分。Windows WSL 2 和普通 Intel/AMD Linux 通常使用 `linux-amd64` 包；Apple Silicon 或 ARM64 Linux 可使用 `linux-arm64` 包。可用以下命令确认：
 
@@ -13,7 +13,7 @@ docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
 如果本目录包含 `docker-offline/`，可先按其中的 README 使用离线 Docker 安装包。
 
 ```bash
-docker load -i codesetarena-student-v7.1.9.image.tar
+docker load -i codesetarena-student-v7.1.10.image.tar
 docker compose up
 ```
 

@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from codesetarena.config import load_runtime_config, update_local_api_key
@@ -88,4 +90,42 @@ def test_default_teacher_allowed_student_versions_whitelist_contains_current_ver
     state = load_teacher_state(tmp_path / "teacher")
 
     assert "合法学生端版本号白名单" in page.text
-    assert state["settings"]["allowed_student_versions"] == ["v7.1.9", "v7.1.8", "v7.1.7", "v7.1.3"]
+    assert state["settings"]["allowed_student_versions"] == ["v7.1.10", "v7.1.7"]
+
+
+def test_teacher_allowed_student_versions_migrates_only_old_default(tmp_path):
+    teacher_root = tmp_path / "teacher"
+    teacher_root.mkdir()
+    (teacher_root / "teacher-state.json").write_text(
+        json.dumps(
+            {
+                "settings": {
+                    "allowed_student_versions": ["v7.1.9", "v7.1.8", "v7.1.7", "v7.1.3"],
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    state = load_teacher_state(teacher_root)
+
+    assert state["settings"]["allowed_student_versions"] == ["v7.1.10", "v7.1.7"]
+
+    manual_root = tmp_path / "manual"
+    manual_root.mkdir()
+    (manual_root / "teacher-state.json").write_text(
+        json.dumps(
+            {
+                "settings": {
+                    "allowed_student_versions": ["v7.1.9", "v7.1.7"],
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    manual_state = load_teacher_state(manual_root)
+
+    assert manual_state["settings"]["allowed_student_versions"] == ["v7.1.9", "v7.1.7"]

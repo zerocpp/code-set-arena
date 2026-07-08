@@ -1197,6 +1197,94 @@ def test_teacher_roster_import_preserves_stage_state_and_missing_requires_confir
     assert load_teacher_state(teacher_root)["stage2_assignment_manifest"]["reviews_per_problem"] == 1
 
 
+def test_teacher_stage1_rows_show_package_version(tmp_path):
+    teacher_root = tmp_path / "teacher"
+    teacher = TestClient(create_teacher_app(teacher_root))
+
+    _upload(teacher, "/stage1/upload", _make_stage1_package(tmp_path, "2026000001", "Alice"))
+
+    page = teacher.get("/stage1")
+    assert "<th>版本号</th>" in page.text
+    assert f"<td>{DISPLAY_VERSION}</td>" in page.text
+
+
+def test_teacher_stage1_invalid_uploaded_package_can_be_deleted_after_validate_all(tmp_path):
+    teacher_root = tmp_path / "teacher"
+    teacher = TestClient(create_teacher_app(teacher_root))
+    archive = _make_stage1_package(tmp_path, "2026000001", "Alice")
+
+    _upload(teacher, "/stage1/upload", archive)
+    state = load_teacher_state(teacher_root)
+    state["settings"]["allowed_student_versions"] = ["v0.0.1"]
+    state["assignments"] = {"stale": {"anon": {}}}
+    save_teacher_state(teacher_root, state)
+
+    response = teacher.post("/stage1/validate-all", follow_redirects=False)
+    assert response.status_code == 303
+    state = load_teacher_state(teacher_root)
+    assert state["submissions"] == {}
+    assert state["stage1_package_status"]["2026000001"]["archive"] == archive.name
+    assert state["assignments"] == {}
+
+    page = teacher.get("/stage1")
+    assert 'action="/stage1/submissions/2026000001/delete"' in page.text
+    assert 'href="/stage1/submissions/2026000001"' not in page.text
+
+    state["assignments"] = {"stale": {"anon": {}}}
+    save_teacher_state(teacher_root, state)
+    response = teacher.post("/stage1/submissions/2026000001/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    state = load_teacher_state(teacher_root)
+    assert "2026000001" not in state["stage1_package_status"]
+    assert not (teacher_root / "stage1-submissions/uploads" / archive.name).exists()
+    assert state["assignments"] == {}
+
+
+def test_teacher_stage1_status_table_exports_xlsx(tmp_path):
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    teacher_root = tmp_path / "teacher"
+    teacher = TestClient(create_teacher_app(teacher_root))
+    roster = _make_roster_xlsx(
+        tmp_path,
+        [
+            ("2026000001", "Alice", "A"),
+            ("2026000002", "Bob", "B"),
+        ],
+    )
+    _upload(teacher, "/students/upload", roster)
+    _upload(teacher, "/stage1/upload", _make_stage1_package(tmp_path, "2026000001", "Alice"))
+
+    response = teacher.post("/stage1/export-status", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert "download=" in response.headers["location"]
+    download = teacher.get("/downloads/阶段1导出表.xlsx")
+    assert download.status_code == 200
+    workbook = load_workbook(BytesIO(download.content), read_only=True, data_only=True)
+    rows = list(workbook.active.iter_rows(values_only=True))
+    assert rows[0] == ("学号", "姓名", "班级", "导入情况", "校验情况", "包名")
+    assert rows[1] == (
+        "2026000001",
+        "Alice",
+        "A",
+        "已导入",
+        "校验通过",
+        "2026000001-student-stage1-problems.tar.gz",
+    )
+    assert tuple(value or "" for value in rows[2]) == (
+        "2026000002",
+        "Bob",
+        "B",
+        "未导入",
+        "未导入",
+        "",
+    )
+
+
 def test_teacher_stage2_assignment_import_overwrites_assignments_and_clears_downstream(tmp_path):
     teacher_root = tmp_path / "teacher"
     teacher = TestClient(create_teacher_app(teacher_root))
@@ -1780,6 +1868,8 @@ def test_student_stage2_submission_archive_import_round_trip(tmp_path):
     assert "导入审稿提交包" in page.text
     assert "里面只有待审题目，没有你的审稿意见" in page.text
     assert "用于恢复自己的审稿存档" in page.text
+    assert "v7.1.9 起导出的提交包可恢复任务和审稿意见，旧版提交包不能在这里导入。" in page.text
+    assert "v7.1.8 起导出的提交包" not in page.text
 
     _upload(student, "/stage2/import", assignment)
     assignment_state = load_student_state(student_root)["assignment"]

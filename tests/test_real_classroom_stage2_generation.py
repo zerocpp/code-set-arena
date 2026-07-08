@@ -37,7 +37,13 @@ def test_real_classroom_stage1_packages_generate_importable_stage2_assignments(t
     teacher_root = ensure_teacher_tree(tmp_path / "teacher")
     state = default_teacher_state()
     state["settings"]["random_seed"] = 42
-    state["settings"]["allowed_student_versions"] = ["v7.1.9", "v7.1.8", "v7.1.7", "v7.1.3"]
+    state["settings"]["allowed_student_versions"] = [
+        "v7.1.10",
+        "v7.1.9",
+        "v7.1.8",
+        "v7.1.7",
+        "v7.1.3",
+    ]
     state["students"] = load_student_roster_xlsx(ROSTER_PATH)
 
     failures: dict[str, str] = {}

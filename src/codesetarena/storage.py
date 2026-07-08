@@ -8,6 +8,8 @@ from typing import Any
 
 from .constants import DEFAULT_ALLOWED_STUDENT_VERSION_TAGS, DEFAULT_RANDOM_SEED
 
+OLD_DEFAULT_ALLOWED_STUDENT_VERSION_TAGS = ["v7.1.9", "v7.1.8", "v7.1.7", "v7.1.3"]
+
 
 def read_json(path: Path, default: Any) -> Any:
     if not path.exists():
@@ -89,7 +91,9 @@ def save_student_state(root: Path, state: dict[str, Any]) -> None:
 
 
 def load_teacher_state(root: Path) -> dict[str, Any]:
-    return _merge_missing_defaults(default_teacher_state(), read_json(teacher_state_path(root), {}))
+    state = _merge_missing_defaults(default_teacher_state(), read_json(teacher_state_path(root), {}))
+    _migrate_teacher_state_defaults(state)
+    return state
 
 
 def save_teacher_state(root: Path, state: dict[str, Any]) -> None:
@@ -106,6 +110,14 @@ def _merge_missing_defaults(default: dict[str, Any], loaded: Any) -> dict[str, A
         elif isinstance(default_value, dict) and isinstance(merged[key], dict):
             merged[key] = _merge_missing_defaults(default_value, merged[key])
     return merged
+
+
+def _migrate_teacher_state_defaults(state: dict[str, Any]) -> None:
+    settings = state.get("settings")
+    if not isinstance(settings, dict):
+        return
+    if settings.get("allowed_student_versions") == OLD_DEFAULT_ALLOWED_STUDENT_VERSION_TAGS:
+        settings["allowed_student_versions"] = list(DEFAULT_ALLOWED_STUDENT_VERSION_TAGS)
 
 
 def append_audit(state: dict[str, Any], event: str, detail: str) -> None:
