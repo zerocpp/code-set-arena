@@ -25,7 +25,7 @@ def normalize_allowed_student_versions(values: Any) -> list[str]:
         if not value:
             continue
         if not VERSION_PATTERN.fullmatch(value):
-            raise ValueError("合法学生端版本号必须使用 vX.Y.Z 格式，例如 v7.1.7")
+            raise ValueError("合法学生端版本号必须使用 vX.Y.Z 格式，例如 v7.1.8")
         if value not in seen:
             normalized.append(value)
             seen.add(value)

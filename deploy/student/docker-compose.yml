@@ -1,6 +1,6 @@
 services:
   codesetarena-student:
-    image: codesetarena-student:v7.1.7
+    image: codesetarena-student:v7.1.8
     ports:
       - "${CODESETARENA_STUDENT_PORT:-8000}:8000"
     volumes:
