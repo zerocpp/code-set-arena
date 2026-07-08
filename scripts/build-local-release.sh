@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION_TAG="v7.1.8"
+VERSION_TAG="${VERSION_TAG:-v7.1.9}"
 DIST_ROOT="dist"
 DIST_DIR="${DIST_ROOT}/${VERSION_TAG}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.org/simple}"
@@ -65,5 +65,11 @@ fi
 tar -czf "${STUDENT_ARCHIVE}" -C "${DIST_DIR}" "codesetarena-student-local-${VERSION_TAG}-${PLATFORM_LABEL}"
 tar -czf "${TEACHER_ARCHIVE}" -C "${DIST_DIR}" "codesetarena-teacher-local-${VERSION_TAG}-${PLATFORM_LABEL}"
 
+(
+  cd "${DIST_DIR}"
+  shasum -a 256 ./*.tar.gz > SHA256SUMS.txt
+)
+
 echo "created ${STUDENT_ARCHIVE}"
 echo "created ${TEACHER_ARCHIVE}"
+echo "updated ${DIST_DIR}/SHA256SUMS.txt"

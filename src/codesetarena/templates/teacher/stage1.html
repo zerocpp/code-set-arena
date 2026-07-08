@@ -19,28 +19,39 @@
     <input type="file" name="file" accept=".tar.gz,application/gzip" required>
     <button type="submit">上传并验证</button>
   </form>
+  <form method="post" action="/stage1/validate-all" class="inline-form">
+    <button type="submit">一键校验所有导入包</button>
+  </form>
 </section>
 <section class="panel">
-  <h2>已导入学生</h2>
+  <h2>学生导入状态</h2>
   <table>
-    <tr><th>学号</th><th>姓名</th><th>题目数</th><th>包名</th><th>操作</th></tr>
-    {% for student_number, row in state.submissions.items() %}
+    <tr><th>学号</th><th>姓名</th><th>班级</th><th>导入情况</th><th>校验情况</th><th>包名</th><th>操作</th></tr>
+    {% for row in stage1_rows %}
     <tr>
-      <td>{{ student_number }}</td>
-      <td>{{ row.student.name }}</td>
-      <td>{{ row.problems | length }}</td>
+      <td>{{ row.student_number }}</td>
+      <td>{{ row.name }}</td>
+      <td>{{ row.class_id }}</td>
+      <td>{{ "已导入" if row.imported else "未导入" }}</td>
+      <td>
+        <span class="status-pill {{ 'ok' if row.validation_ok else 'bad' }}">{{ "校验通过" if row.validation_ok else row.validation_detail }}</span>
+      </td>
       <td>{{ row.archive }}</td>
       <td>
+        {% if row.has_submission %}
         <div class="inline-actions">
-          <a class="button secondary" href="/stage1/submissions/{{ student_number }}">详情</a>
-          <form method="post" action="/stage1/submissions/{{ student_number }}/delete" onsubmit="return confirm('确定删除 {{ student_number }} 的 Stage 1 包吗？这会清空依赖它的后续分配、审稿、反馈、修订和评测数据。');">
+          <a class="button secondary" href="/stage1/submissions/{{ row.student_number }}">详情</a>
+          <form method="post" action="/stage1/submissions/{{ row.student_number }}/delete" onsubmit="return confirm('确定删除 {{ row.student_number }} 的 Stage 1 包吗？这会清空依赖它的后续分配、审稿、反馈、修订和评测数据。');">
             <button type="submit" class="danger-quiet">删除</button>
           </form>
         </div>
+        {% else %}
+        -
+        {% endif %}
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="5">暂无提交</td></tr>
+    <tr><td colspan="7">暂无学生名单或提交</td></tr>
     {% endfor %}
   </table>
 </section>

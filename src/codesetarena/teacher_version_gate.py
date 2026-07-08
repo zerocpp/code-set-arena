@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .constants import VERSION_TAG
+from .constants import DEFAULT_ALLOWED_STUDENT_VERSION_TAGS
 from .packages import PackageError
 
 VERSION_PATTERN = re.compile(r"^v\d+\.\d+\.\d+$")
@@ -35,7 +35,7 @@ def normalize_allowed_student_versions(values: Any) -> list[str]:
 
 
 def default_allowed_student_versions() -> list[str]:
-    return [VERSION_TAG]
+    return list(DEFAULT_ALLOWED_STUDENT_VERSION_TAGS)
 
 
 def allowed_student_versions_from_settings(settings: dict[str, Any] | None) -> list[str]:

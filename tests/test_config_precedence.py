@@ -88,4 +88,4 @@ def test_default_teacher_allowed_student_versions_whitelist_contains_current_ver
     state = load_teacher_state(tmp_path / "teacher")
 
     assert "合法学生端版本号白名单" in page.text
-    assert state["settings"]["allowed_student_versions"] == ["v7.1.8"]
+    assert state["settings"]["allowed_student_versions"] == ["v7.1.9", "v7.1.8", "v7.1.7", "v7.1.3"]

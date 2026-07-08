@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .constants import DEFAULT_RANDOM_SEED, VERSION_TAG
+from .constants import DEFAULT_ALLOWED_STUDENT_VERSION_TAGS, DEFAULT_RANDOM_SEED
 
 
 def read_json(path: Path, default: Any) -> Any:
@@ -59,8 +59,10 @@ def default_teacher_state() -> dict[str, Any]:
             "api_key_source": "未设置",
             "models": [],
             "random_seed": DEFAULT_RANDOM_SEED,
-            "allowed_student_versions": [VERSION_TAG],
+            "allowed_student_versions": DEFAULT_ALLOWED_STUDENT_VERSION_TAGS,
         },
+        "students": {},
+        "stage1_package_status": {},
         "submissions": {},
         "assignments": {},
         "stage2_assignment_manifest": {},

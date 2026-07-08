@@ -1164,6 +1164,61 @@ def test_teacher_stage2_assignment_balances_human_reviewer_load(tmp_path):
     assert set(human_loads.values()) == {15}
 
 
+def test_teacher_roster_import_preserves_stage_state_and_missing_requires_confirmation(tmp_path):
+    teacher_root = tmp_path / "teacher"
+    teacher = TestClient(create_teacher_app(teacher_root))
+    _upload(teacher, "/stage1/upload", _make_stage1_package(tmp_path, "2026000001", "Alice"))
+    state_before = load_teacher_state(teacher_root)
+    assert "2026000001" in state_before["submissions"]
+
+    roster = _make_roster_xlsx(
+        tmp_path,
+        [
+            ("2026000001", "Alice Updated", "A1"),
+            ("2026000002", "Bob", "A1"),
+        ],
+    )
+    _upload(teacher, "/students/upload", roster)
+    state = load_teacher_state(teacher_root)
+    assert state["students"]["2026000001"]["name"] == "Alice Updated"
+    assert "2026000001" in state["submissions"]
+
+    response = teacher.post("/stage2/assign", data={"reviews_per_problem": "1"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert "error=" in response.headers["location"]
+    assert "缺席" in teacher.get(response.headers["location"]).text
+
+    response = teacher.post(
+        "/stage2/assign",
+        data={"reviews_per_problem": "1", "confirm_missing": "1"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert load_teacher_state(teacher_root)["stage2_assignment_manifest"]["reviews_per_problem"] == 1
+
+
+def test_teacher_stage2_assignment_import_overwrites_assignments_and_clears_downstream(tmp_path):
+    teacher_root = tmp_path / "teacher"
+    teacher = TestClient(create_teacher_app(teacher_root))
+    for student_number, name in [("2026000001", "Alice"), ("2026000002", "Bob")]:
+        _upload(teacher, "/stage1/upload", _make_stage1_package(tmp_path, student_number, name))
+    first = teacher.post("/stage2/assign", data={"reviews_per_problem": "2"}, follow_redirects=False)
+    assert first.status_code == 303
+    bundle = teacher_root / "stage2-review-assignment/review-packages/teacher-stage2-review-assignments.tar.gz"
+    original_manifest = _read_bundle_manifest(bundle)
+
+    state = load_teacher_state(teacher_root)
+    state["assignments"] = {"stale": {"anon": {}}}
+    state["reviews"] = {"2026000001": {"reviews": []}}
+    save_teacher_state(teacher_root, state)
+
+    _upload(teacher, "/stage2/assign/import", bundle)
+    state = load_teacher_state(teacher_root)
+    assert state["stage2_assignment_manifest"] == original_manifest
+    assert "stale" not in state["assignments"]
+    assert state["reviews"] == {}
+
+
 def test_student_validation_reports_python_environment_error(tmp_path):
     student_root = tmp_path / "student"
     student = TestClient(create_student_app(student_root))
@@ -2541,6 +2596,19 @@ def _make_stage1_package(root: Path, student_number: str, name: str) -> Path:
             "problems": problems,
         },
     )
+    return output
+
+
+def _make_roster_xlsx(root: Path, rows: list[tuple[str, str, str]]) -> Path:
+    from openpyxl import Workbook
+
+    output = root / "学生名单.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["学号", "姓名", "班级"])
+    for row in rows:
+        sheet.append(list(row))
+    workbook.save(output)
     return output
 
 

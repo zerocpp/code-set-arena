@@ -51,6 +51,8 @@ def test_dockerfiles_use_official_python_executor_image():
         root / "docker/teacher/Dockerfile",
     ]:
         first_line = dockerfile.read_text(encoding="utf-8").splitlines()[0]
-        assert first_line == f"FROM {EXECUTION_PYTHON_IMAGE}"
+        assert first_line == f"FROM {EXECUTION_PYTHON_IMAGE}" or first_line.startswith(
+            f"FROM {EXECUTION_PYTHON_IMAGE} AS "
+        )
         assert EXECUTION_PYTHON_IMAGE.startswith("python:")
         assert EXECUTION_PYTHON_VERSION in EXECUTION_PYTHON_IMAGE

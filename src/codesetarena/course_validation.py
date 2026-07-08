@@ -13,6 +13,7 @@ from .constants import (
     RUN_ORIGIN_STUDENT_SELF_TEST,
 )
 from .form_limits import ensure_max_length
+from .model_run_utils import RunRepairError, repair_run_record_for_compat
 
 
 ALLOWED_REVIEW_CONCLUSIONS = {"accept", "minor", "major", "reject"}
@@ -48,6 +49,7 @@ def validate_stage1_problem_package(problems: list[dict[str, Any]]) -> None:
                 raise ValueError(f"{problem_id} selected run must be student_self_test")
             if not (run.get("prompt") and run.get("api_request_raw") and run.get("api_response_raw")):
                 raise ValueError(f"{problem_id} selected run missing raw evidence")
+            _repair_package_run(problem_id, problem, run)
 
 
 def validate_review_assignment_payload(payload: dict[str, Any]) -> None:
@@ -71,8 +73,7 @@ def validate_review_assignment_payload(payload: dict[str, Any]) -> None:
                 raise ValueError(f"{anon_id} run must be student_self_test")
             if not (run.get("prompt") and run.get("api_request_raw") and run.get("api_response_raw")):
                 raise ValueError(f"{anon_id} run missing raw evidence")
-            if not (run.get("extracted_code") or run.get("raw_response")):
-                raise ValueError(f"{anon_id} run missing returned code")
+            _repair_package_run(anon_id, problem, run)
 
 
 def validate_reviews_for_assignment(
@@ -88,6 +89,13 @@ def validate_reviews_for_assignment(
         raise ValueError(f"review package must contain exactly assigned reviews; missing={missing}, extra={extra}")
     for review in reviews:
         validate_review(review)
+
+
+def _repair_package_run(problem_id: str, problem: dict[str, Any], run: dict[str, Any]) -> None:
+    try:
+        repair_run_record_for_compat(run, str(problem.get("signature", "")))
+    except RunRepairError as exc:
+        raise ValueError(f"{problem_id} run {run.get('run_id', '')} {exc}") from exc
 
 
 def validate_review(review: dict[str, Any]) -> None:

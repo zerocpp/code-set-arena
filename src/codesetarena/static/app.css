@@ -720,6 +720,11 @@ button:disabled {
   color: #805300;
 }
 
+.status-pill.bad {
+  background: #ffe3e3;
+  color: #9f1d1d;
+}
+
 .package {
   border-color: #246bfe;
 }

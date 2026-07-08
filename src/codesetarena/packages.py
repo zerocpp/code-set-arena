@@ -94,13 +94,15 @@ def write_bundle(
 def _write_tar(root: Path, output_path: Path) -> None:
     with tarfile.open(output_path, "w:gz") as tar:
         for path in sorted(root.rglob("*")):
-            if path.is_file():
+            if path.is_file() and not _is_macos_metadata(path.relative_to(root)):
                 tar.add(path, arcname=path.relative_to(root))
 
 
 def _extract_tar(archive_path: Path, destination: Path) -> None:
     with tarfile.open(archive_path, "r:gz") as tar:
         for member in tar.getmembers():
+            if not (member.isfile() or member.isdir()):
+                raise PackageError("unsafe archive member")
             target = destination / member.name
             try:
                 target.relative_to(destination)
@@ -109,3 +111,7 @@ def _extract_tar(archive_path: Path, destination: Path) -> None:
             if member.name.startswith("/") or ".." in Path(member.name).parts:
                 raise PackageError("unsafe archive member")
         tar.extractall(destination)
+
+
+def _is_macos_metadata(path: Path) -> bool:
+    return any(part == "__MACOSX" or part == ".DS_Store" or part.startswith("._") for part in path.parts)

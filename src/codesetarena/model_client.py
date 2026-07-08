@@ -13,6 +13,7 @@ from typing import Any
 
 from .config import RuntimeConfig
 from .constants import MODEL_RUN_TEMPERATURE, MODEL_RUN_TOP_P
+from .model_run_utils import response_final_text
 
 
 @dataclass(frozen=True)
@@ -101,11 +102,7 @@ def real_completion(*, config: RuntimeConfig, model: str, prompt: str, timeout: 
     payload.setdefault("schema_version", "codesetarena.api_response_raw.v1")
     payload.setdefault("provider_api", "real_openai_chat_completions")
     payload.setdefault("created_at", int(time.time()))
-    choices = payload.get("choices") or []
-    content = ""
-    if choices and isinstance(choices[0], dict):
-        message = choices[0].get("message") or {}
-        content = str(message.get("content", ""))
+    content = response_final_text(payload)
     return ModelResult(request_raw=request_raw, response_raw=payload, content=content)
 
 
