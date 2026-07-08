@@ -5,7 +5,6 @@ ARG PIP_DEFAULT_TIMEOUT=120
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    CODESETARENA_TEACHER_DATA_DIR=/data \
     PIP_INDEX_URL=${PIP_INDEX_URL} \
     PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
     PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -15,6 +14,7 @@ COPY requirements.txt /app/
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
 FROM deps AS app
+ENV CODESETARENA_TEACHER_DATA_DIR=/data
 WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src

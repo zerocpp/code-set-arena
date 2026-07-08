@@ -51,4 +51,7 @@ def test_student_and_teacher_dockerfiles_keep_dependency_layer_before_source():
         assert "COPY requirements.txt /app/" in dockerfile
         assert "RUN python -m pip install --no-cache-dir -r requirements.txt" in dockerfile
         assert dockerfile.index("COPY requirements.txt /app/") < dockerfile.index("COPY src /app/src")
+        assert dockerfile.index("RUN python -m pip install --no-cache-dir -r requirements.txt") < dockerfile.index(
+            "CODESETARENA_"
+        )
         assert "RUN python -m pip install --no-cache-dir --no-deps ." in dockerfile
